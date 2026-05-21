@@ -25,6 +25,8 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from PIL import Image
 from pydantic import BaseModel, Field
 
+from discovery import discover_printers
+
 
 # --------------------------------------------------------------------------
 # Configuration
@@ -36,6 +38,13 @@ def _int_env(name: str, default: int) -> int:
         return default
 
 
+def _bool_env(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
 SERVICE_NAME = "printcast"
 PRINTER_HOST = os.environ.get("PRINTER_HOST", "")
 PRINTER_PORT = _int_env("PRINTER_PORT", 9100)
@@ -43,7 +52,14 @@ PRINTER_CODEPAGE = os.environ.get("PRINTER_CODEPAGE", "CP858")
 PRINTER_TOKEN = os.environ.get("PRINTER_TOKEN", "")
 PRINTER_TIMEOUT = _int_env("PRINTER_TIMEOUT", 20)
 RETRIES = max(1, _int_env("PRINTER_RETRIES", 3))
+# Auto-detect a printer at startup when PRINTER_HOST is empty. Disable when you
+# need deterministic behavior (e.g. tests) by setting PRINTER_AUTODETECT=false.
+PRINTER_AUTODETECT = _bool_env("PRINTER_AUTODETECT", True)
 TZ_NAME = os.environ.get("TZ", "Europe/Paris")
+
+# Populated when the host comes from auto-detection rather than the env var,
+# so /health can advertise how it found the printer.
+PRINTER_DISCOVERY: Optional[dict] = None
 
 LINE_WIDTH = 48          # 72mm print area at 203 dpi
 MAX_IMG_WIDTH = 512      # dots; images wider than this are downscaled
@@ -125,6 +141,26 @@ def tcp_reachable(host: str, port: int, timeout: int = HEALTH_TCP_TIMEOUT) -> bo
             return True
     except OSError:
         return False
+
+
+def autodetect_printer() -> Optional[dict]:
+    """Return the first reachable printer candidate on the LAN, or None.
+
+    Reassigns the PRINTER_HOST module global and records discovery metadata
+    in PRINTER_DISCOVERY so /health can surface how the printer was found.
+    """
+    global PRINTER_HOST, PRINTER_DISCOVERY
+    log("printer.autodetect.start", port=PRINTER_PORT)
+    candidates = discover_printers(port=PRINTER_PORT)
+    for c in candidates:
+        if tcp_reachable(c["host"], c["port"]):
+            PRINTER_HOST = c["host"]
+            PRINTER_DISCOVERY = c
+            log("printer.autodetect.found", **c)
+            return c
+    log("printer.autodetect.none", level=logging.WARNING,
+        candidates=len(candidates))
+    return None
 
 
 def _apply_codepage(printer: Network) -> None:
@@ -400,15 +436,29 @@ def _print_error_handler(_request, exc: PrintError) -> JSONResponse:
 @app.get("/health")
 def health() -> dict:
     reachable = tcp_reachable(PRINTER_HOST, PRINTER_PORT)
+    printer = {
+        "host": PRINTER_HOST,
+        "port": PRINTER_PORT,
+        "reachable": reachable,
+    }
+    if PRINTER_DISCOVERY:
+        printer["discovered_via"] = PRINTER_DISCOVERY.get("method")
+        if PRINTER_DISCOVERY.get("name"):
+            printer["name"] = PRINTER_DISCOVERY["name"]
     return {
         "status": "ok" if reachable else "degraded",
         "service": SERVICE_NAME,
-        "printer": {
-            "host": PRINTER_HOST,
-            "port": PRINTER_PORT,
-            "reachable": reachable,
-        },
+        "printer": printer,
     }
+
+
+@app.get("/discover")
+def discover(_: None = Depends(require_auth)) -> dict:
+    """List printer candidates currently reachable on the LAN."""
+    candidates = discover_printers(port=PRINTER_PORT)
+    for c in candidates:
+        c["reachable"] = tcp_reachable(c["host"], c["port"])
+    return {"port": PRINTER_PORT, "candidates": candidates}
 
 
 @app.get("/metrics")
@@ -477,15 +527,22 @@ def print_test(_: None = Depends(require_auth)) -> dict:
 # Entry point
 # --------------------------------------------------------------------------
 def main() -> None:
-    missing = [k for k in ("PRINTER_HOST", "PRINTER_TOKEN")
-               if not os.environ.get(k)]
-    if missing:
-        log("config.error", level=logging.ERROR, missing=missing,
-            detail="required environment variables are not set")
+    if not PRINTER_TOKEN:
+        log("config.error", level=logging.ERROR, missing=["PRINTER_TOKEN"],
+            detail="required environment variable is not set")
+        sys.exit(1)
+
+    if not PRINTER_HOST and PRINTER_AUTODETECT:
+        autodetect_printer()
+
+    if not PRINTER_HOST:
+        log("config.error", level=logging.ERROR, missing=["PRINTER_HOST"],
+            detail="PRINTER_HOST not set and auto-detection found no printer")
         sys.exit(1)
 
     log("service.start", service=SERVICE_NAME, listen="0.0.0.0:8080",
         printer_host=PRINTER_HOST, printer_port=PRINTER_PORT,
+        printer_discovered_via=(PRINTER_DISCOVERY or {}).get("method"),
         codepage=PRINTER_CODEPAGE, retries=RETRIES, tz=TZ_NAME)
     uvicorn.run(app, host="0.0.0.0", port=8080, log_level="info")
 

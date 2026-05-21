@@ -23,15 +23,21 @@ The printer cannot multiplex jobs and drops idle sockets, so `printcast`:
 
 All configuration is through environment variables (see `.env.example`):
 
-| Variable           | Required | Default          | Purpose                              |
-|--------------------|----------|------------------|--------------------------------------|
-| `PRINTER_HOST`     | yes      | —                | Printer IP / hostname                |
-| `PRINTER_PORT`     | no       | `9100`           | Raw TCP / JetDirect port             |
-| `PRINTER_CODEPAGE` | no       | `CP858`          | Codepage for accents                 |
-| `PRINTER_TOKEN`    | yes      | —                | Bearer token for `/print*` endpoints |
-| `PRINTER_TIMEOUT`  | no       | `20`             | Per-job socket timeout (seconds)     |
-| `PRINTER_RETRIES`  | no       | `3`              | Attempts per job                     |
-| `TZ`               | no       | `Europe/Paris`   | Timezone for printed timestamps      |
+| Variable             | Required | Default          | Purpose                                                       |
+|----------------------|----------|------------------|---------------------------------------------------------------|
+| `PRINTER_HOST`       | no¹      | —                | Printer IP / hostname                                         |
+| `PRINTER_PORT`       | no       | `9100`           | Raw TCP / JetDirect port                                      |
+| `PRINTER_AUTODETECT` | no       | `true`           | When `PRINTER_HOST` is empty, discover at startup (mDNS+scan) |
+| `PRINTER_CODEPAGE`   | no       | `CP858`          | Codepage for accents                                          |
+| `PRINTER_TOKEN`      | yes      | —                | Bearer token for `/print*` endpoints                          |
+| `PRINTER_TIMEOUT`    | no       | `20`             | Per-job socket timeout (seconds)                              |
+| `PRINTER_RETRIES`    | no       | `3`              | Attempts per job                                              |
+| `TZ`                 | no       | `Europe/Paris`   | Timezone for printed timestamps                               |
+
+¹ If `PRINTER_HOST` is unset, the service auto-detects on startup: mDNS first
+(`_pdl-datastream._tcp`, `_printer._tcp`, `_ipp._tcp`) then a parallel TCP scan
+of the local /24 on `PRINTER_PORT`. Startup fails if nothing is found — set
+`PRINTER_HOST` explicitly to skip discovery.
 
 The service listens on `0.0.0.0:8080`.
 
@@ -84,6 +90,23 @@ curl https://printcast.battistella.ovh/metrics
 printer_jobs_total{status="success"} 12
 printer_jobs_total{status="error"} 1
 printer_last_job_timestamp_seconds 1747000000.0
+```
+
+### `GET /discover` — bearer token required
+
+List printer candidates reachable on the LAN right now. Useful when the IoT
+VLAN changes or to confirm what auto-detection would pick.
+
+```sh
+curl https://printcast.battistella.ovh/discover \
+  -H "Authorization: Bearer $PRINTER_TOKEN"
+```
+
+```json
+{"port":9100,
+ "candidates":[
+   {"host":"192.168.30.40","port":9100,"name":"T80UL","service":"_pdl-datastream._tcp","method":"mdns","reachable":true}
+ ]}
 ```
 
 ### `POST /print/text`
