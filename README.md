@@ -7,6 +7,9 @@ to one HTTP API, and the service prints to a single network thermal printer.
 - **Printer:** Qian T80UL-RI-02, 80mm thermal, ESC/POS, reached over LAN on raw
   TCP port 9100 (JetDirect). 72mm print area = 48 characters per line.
 - **Stack:** Python 3.12, FastAPI + uvicorn, `python-escpos`, Pillow, requests.
+- **Frontend:** React + Vite + shadcn/ui, bundled into the same container.
+  First-run setup wizard, supervision dashboard, analytics, and a job-history
+  viewer all live at `/` once the service is reachable.
 
 ## How it works
 
@@ -38,26 +41,81 @@ The service listens on `0.0.0.0:8080`.
 ## Deployment
 
 ```sh
-cp .env.example .env        # then edit PRINTER_HOST and PRINTER_TOKEN
 docker compose up -d --build
 ```
+
+On the first deployment you do **not** need to pre-fill `.env`: open the web UI
+at `https://printcast.battistella.ovh/` and walk through the setup wizard —
+printer host + port, a generated or pasted bearer token, a TCP probe, and
+you're done. Settings are persisted to the named volume `printcast-data` as
+`/app/data/config.json`, applied immediately, and survive container rebuilds.
+
+`.env` is still respected as the initial seed for `PRINTER_HOST`,
+`PRINTER_PORT`, `PRINTER_TOKEN`, etc. — useful for unattended deploys.
 
 The compose file joins the external `lan` network and exposes the service
 through Traefik at `https://printcast.battistella.ovh`. The container runs as a
 non-root user with `no-new-privileges`, a 256M memory limit, capped JSON-file
 logs, and a healthcheck that probes `/health`.
 
+## Web UI
+
+The same container that serves the API also serves the bundled React UI on
+`/`. Endpoints:
+
+| Route          | Purpose                                                |
+|----------------|--------------------------------------------------------|
+| `/setup`       | First-run wizard (only shown until setup is complete). |
+| `/` (root)     | Supervision dashboard — printer health, last job, KPIs.|
+| `/analytics`   | Throughput charts, success rate, type breakdown.       |
+| `/jobs`        | Last 200 jobs with status, duration, source.           |
+| `/test`        | Compose ad-hoc text/receipt prints from the browser.   |
+| `/settings`    | Edit printer config and rotate the bearer token.       |
+
+After setup, the dashboard requires the bearer token (the same one the
+`/print*` endpoints accept) — paste it at `/login`. The token is stored in
+`localStorage` and sent as `Authorization: Bearer …`.
+
+### Frontend dev loop
+
+```sh
+cd frontend
+npm install
+npm run dev          # vite on :5173, proxies /api, /print, /health to :8080
+```
+
+Run the Python backend separately (`python app.py`) and Vite will proxy API
+calls to it during development.
+
 ## API
 
-All `/print*` endpoints require a bearer token:
+All `/print*` and `/api/*` (except `/api/setup/status`) endpoints require a
+bearer token:
 
 ```
 Authorization: Bearer <PRINTER_TOKEN>
 ```
 
-`/health` and `/metrics` are unauthenticated. On a printer failure the `/print*`
-endpoints return HTTP `502`; bad input returns `400`; a missing/invalid token
-returns `401`.
+`/health`, `/metrics`, and `/api/setup/status` are unauthenticated. Before the
+setup wizard is completed, `/api/setup/*` is also unauthenticated so the UI can
+bootstrap. On a printer failure the `/print*` endpoints return HTTP `502`; bad
+input returns `400`; a missing/invalid token returns `401`.
+
+### Admin & analytics API
+
+These power the React frontend but are usable from anywhere:
+
+| Method & path                       | Purpose                                       |
+|-------------------------------------|-----------------------------------------------|
+| `GET  /api/setup/status`            | Has the wizard been completed?                |
+| `POST /api/setup/generate-token`    | Generate a 64-char hex bearer token.          |
+| `POST /api/setup/test-connection`   | TCP-probe a host/port before saving.          |
+| `POST /api/setup/complete`          | Persist initial config and mark setup done.   |
+| `GET  /api/config`                  | Current effective configuration (no token).   |
+| `PUT  /api/config`                  | Update one or more configuration fields.      |
+| `GET  /api/jobs?limit=&status=`     | Last N rows of the SQLite job history.        |
+| `GET  /api/analytics/summary`       | Totals, KPIs, recent errors, last job.        |
+| `GET  /api/analytics/timeseries?hours=` | Bucketed success/error counts for charts. |
 
 ### `GET /health` — no auth
 

@@ -6,6 +6,8 @@ services:
     container_name: printcast
     restart: unless-stopped
     env_file: .env
+    volumes:
+      - printcast-data:/app/data
     security_opt:
       - no-new-privileges:true
     deploy:
@@ -36,3 +38,6 @@ services:
 networks:
   lan:
     external: true
+
+volumes:
+  printcast-data:

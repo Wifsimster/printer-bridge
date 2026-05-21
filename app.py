@@ -2,6 +2,10 @@
 
 Many notification sources (n8n, Home Assistant, ntfy, curl) POST JSON here and
 this service prints to a single 80mm ESC/POS printer reached over raw TCP 9100.
+
+This module also exposes an admin API consumed by the bundled React frontend:
+a first-run setup wizard, a supervision dashboard, and analytics over the
+SQLite-backed job history.
 """
 import base64
 import hmac
@@ -9,19 +13,25 @@ import io
 import json
 import logging
 import os
+import secrets
 import socket
+import sqlite3
 import sys
 import threading
 import time
-from datetime import datetime, timezone
-from typing import Callable, Literal, Optional
+from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any, Callable, Literal, Optional
 from zoneinfo import ZoneInfo
 
 import requests
 import uvicorn
 from escpos.printer import Network
-from fastapi import Depends, FastAPI, Header, HTTPException
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
 from PIL import Image
 from pydantic import BaseModel, Field
 
@@ -37,23 +47,59 @@ def _int_env(name: str, default: int) -> int:
 
 
 SERVICE_NAME = "printcast"
-PRINTER_HOST = os.environ.get("PRINTER_HOST", "")
-PRINTER_PORT = _int_env("PRINTER_PORT", 9100)
-PRINTER_CODEPAGE = os.environ.get("PRINTER_CODEPAGE", "CP858")
-PRINTER_TOKEN = os.environ.get("PRINTER_TOKEN", "")
-PRINTER_TIMEOUT = _int_env("PRINTER_TIMEOUT", 20)
-RETRIES = max(1, _int_env("PRINTER_RETRIES", 3))
-TZ_NAME = os.environ.get("TZ", "Europe/Paris")
+DATA_DIR = Path(os.environ.get("PRINTCAST_DATA_DIR", "/app/data"))
+CONFIG_FILE = DATA_DIR / "config.json"
+DB_FILE = DATA_DIR / "printcast.db"
+FRONTEND_DIR = Path(os.environ.get("PRINTCAST_FRONTEND_DIR",
+                                   str(Path(__file__).parent / "frontend" / "dist")))
 
 LINE_WIDTH = 48          # 72mm print area at 203 dpi
 MAX_IMG_WIDTH = 512      # dots; images wider than this are downscaled
 HEALTH_TCP_TIMEOUT = 3   # seconds for the /health connect probe
-IMAGE_FETCH_TIMEOUT = 15 # seconds for downloading a remote image
+IMAGE_FETCH_TIMEOUT = 15
+JOB_HISTORY_LIMIT = 5000
 
-try:
-    LOCAL_TZ = ZoneInfo(TZ_NAME)
-except Exception:
-    LOCAL_TZ = timezone.utc
+# Runtime config -- starts from env, gets overlaid by the persisted config.json.
+CONFIG: dict[str, Any] = {
+    "printer_host": os.environ.get("PRINTER_HOST", ""),
+    "printer_port": _int_env("PRINTER_PORT", 9100),
+    "printer_codepage": os.environ.get("PRINTER_CODEPAGE", "CP858"),
+    "printer_token": os.environ.get("PRINTER_TOKEN", ""),
+    "printer_timeout": _int_env("PRINTER_TIMEOUT", 20),
+    "printer_retries": max(1, _int_env("PRINTER_RETRIES", 3)),
+    "tz": os.environ.get("TZ", "Europe/Paris"),
+    "setup_completed": False,
+}
+CONFIG_LOCK = threading.Lock()
+
+
+def _load_persisted_config() -> None:
+    if not CONFIG_FILE.exists():
+        return
+    try:
+        with CONFIG_FILE.open("r", encoding="utf-8") as fh:
+            persisted = json.load(fh)
+        for key, value in persisted.items():
+            if key in CONFIG:
+                CONFIG[key] = value
+    except (OSError, json.JSONDecodeError) as exc:
+        logging.getLogger(SERVICE_NAME).warning(
+            "could not load %s: %s", CONFIG_FILE, exc)
+
+
+def _save_persisted_config() -> None:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = CONFIG_FILE.with_suffix(".tmp")
+    with tmp.open("w", encoding="utf-8") as fh:
+        json.dump(CONFIG, fh, indent=2)
+    tmp.replace(CONFIG_FILE)
+
+
+def _resolve_tz() -> Any:
+    try:
+        return ZoneInfo(CONFIG["tz"])
+    except Exception:
+        return timezone.utc
 
 
 # --------------------------------------------------------------------------
@@ -90,6 +136,68 @@ def log(event: str, level: int = logging.INFO, **fields) -> None:
 
 
 _setup_logging()
+_load_persisted_config()
+
+
+# --------------------------------------------------------------------------
+# Job history (SQLite)
+# --------------------------------------------------------------------------
+DB_LOCK = threading.Lock()
+
+
+def _init_db() -> None:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS jobs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts REAL NOT NULL,
+                job_type TEXT NOT NULL,
+                status TEXT NOT NULL,
+                duration_ms INTEGER,
+                attempts INTEGER,
+                error TEXT,
+                source TEXT,
+                payload_summary TEXT
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_ts ON jobs(ts)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)")
+
+
+@contextmanager
+def _db():
+    with DB_LOCK:
+        conn = sqlite3.connect(DB_FILE)
+        conn.row_factory = sqlite3.Row
+        try:
+            yield conn
+            conn.commit()
+        finally:
+            conn.close()
+
+
+def record_job(job_type: str, status: str, duration_ms: Optional[int],
+               attempts: int, error: Optional[str], source: Optional[str],
+               summary: Optional[str]) -> None:
+    try:
+        with _db() as conn:
+            conn.execute(
+                """INSERT INTO jobs
+                   (ts, job_type, status, duration_ms, attempts, error, source, payload_summary)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (time.time(), job_type, status, duration_ms, attempts,
+                 error, source, summary),
+            )
+            # Trim the table to JOB_HISTORY_LIMIT most recent rows.
+            conn.execute(
+                """DELETE FROM jobs WHERE id IN (
+                       SELECT id FROM jobs ORDER BY ts DESC LIMIT -1 OFFSET ?
+                   )""",
+                (JOB_HISTORY_LIMIT,),
+            )
+    except sqlite3.Error as exc:
+        log("db.write.failed", level=logging.WARNING, error=str(exc))
 
 
 # --------------------------------------------------------------------------
@@ -104,11 +212,10 @@ class PrintError(Exception):
 
 
 def now_str() -> str:
-    return datetime.now(LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S %Z")
+    return datetime.now(_resolve_tz()).strftime("%Y-%m-%d %H:%M:%S %Z")
 
 
 def describe_error(exc: Exception) -> str:
-    """Some socket/escpos errors stringify to '' -- keep the type name then."""
     msg = str(exc).strip()
     return f"{type(exc).__name__}: {msg}" if msg else type(exc).__name__
 
@@ -117,7 +224,6 @@ def describe_error(exc: Exception) -> str:
 # Printer plumbing
 # --------------------------------------------------------------------------
 def tcp_reachable(host: str, port: int, timeout: int = HEALTH_TCP_TIMEOUT) -> bool:
-    """Plain TCP connect probe -- ESC/POS status reads are unreliable over 9100."""
     if not host:
         return False
     try:
@@ -128,37 +234,41 @@ def tcp_reachable(host: str, port: int, timeout: int = HEALTH_TCP_TIMEOUT) -> bo
 
 
 def _apply_codepage(printer: Network) -> None:
-    """Select the codepage so French accents (e e a c u) render correctly."""
     try:
-        printer.charcode(PRINTER_CODEPAGE)
+        printer.charcode(CONFIG["printer_codepage"])
     except Exception as exc:
         log("printer.codepage.fallback", level=logging.WARNING,
-            requested=PRINTER_CODEPAGE, error=str(exc))
+            requested=CONFIG["printer_codepage"], error=str(exc))
         printer.charcode("AUTO")
 
 
-def run_print_job(job_name: str, render: Callable[[Network], None]) -> None:
-    """Serialize, then run `render` against a fresh connection with backoff retry.
-
-    The printer cannot multiplex jobs and drops idle sockets, so every job opens
-    its own connection and all jobs are funneled through a single lock.
-    """
+def run_print_job(job_name: str, render: Callable[[Network], None],
+                  source: Optional[str] = None,
+                  summary: Optional[str] = None) -> None:
+    """Serialize, then run `render` against a fresh connection with backoff retry."""
+    if not CONFIG["printer_host"]:
+        raise PrintError("printer is not configured")
     started = time.monotonic()
+    retries = max(1, int(CONFIG["printer_retries"]))
     with PRINT_LOCK:
         last_exc: Optional[Exception] = None
-        for attempt in range(1, RETRIES + 1):
+        for attempt in range(1, retries + 1):
             printer = None
             try:
-                printer = Network(PRINTER_HOST, port=PRINTER_PORT,
-                                  timeout=PRINTER_TIMEOUT)
+                printer = Network(CONFIG["printer_host"],
+                                  port=int(CONFIG["printer_port"]),
+                                  timeout=int(CONFIG["printer_timeout"]))
                 printer.open()
                 _apply_codepage(printer)
                 render(printer)
                 printer.close()
                 METRICS["success"] += 1
                 METRICS["last_job_ts"] = time.time()
+                duration_ms = round((time.monotonic() - started) * 1000)
                 log("print.job.success", job=job_name, attempt=attempt,
-                    duration_ms=round((time.monotonic() - started) * 1000))
+                    duration_ms=duration_ms)
+                record_job(job_name, "success", duration_ms, attempt,
+                           None, source, summary)
                 return
             except Exception as exc:
                 last_exc = exc
@@ -169,13 +279,15 @@ def run_print_job(job_name: str, render: Callable[[Network], None]) -> None:
                         pass
                 log("print.job.attempt_failed", level=logging.WARNING,
                     job=job_name, attempt=attempt, error=describe_error(exc))
-                if attempt < RETRIES:
+                if attempt < retries:
                     time.sleep(min(2 ** attempt, 8))
 
         METRICS["error"] += 1
         detail = describe_error(last_exc) if last_exc else "unknown error"
+        duration_ms = round((time.monotonic() - started) * 1000)
         log("print.job.failed", level=logging.ERROR, job=job_name,
-            attempts=RETRIES, error=detail)
+            attempts=retries, error=detail)
+        record_job(job_name, "error", duration_ms, retries, detail, source, summary)
         raise PrintError(detail)
 
 
@@ -203,14 +315,12 @@ def finish(p: Network, cut: bool) -> None:
 
 
 def barcode_code(code: str, bc_type: str) -> str:
-    """python-escpos hardware CODE128 needs a {A/{B/{C code-set selector."""
     if bc_type.upper() == "CODE128" and not code.startswith("{"):
         return "{B" + code
     return code
 
 
 def load_image(src: str) -> Image.Image:
-    """Load an image from an http(s) URL or a (optionally data-URL) base64 blob."""
     if src.startswith("http://") or src.startswith("https://"):
         resp = requests.get(src, timeout=IMAGE_FETCH_TIMEOUT)
         resp.raise_for_status()
@@ -273,6 +383,31 @@ class GenericJob(BaseModel):
     barcode: Optional[str] = None
     image: Optional[str] = None
     cut: bool = True
+
+
+class SetupPayload(BaseModel):
+    printer_host: str
+    printer_port: int = 9100
+    printer_codepage: str = "CP858"
+    printer_token: str
+    printer_timeout: int = 20
+    printer_retries: int = 3
+    tz: str = "Europe/Paris"
+
+
+class ConfigUpdate(BaseModel):
+    printer_host: Optional[str] = None
+    printer_port: Optional[int] = None
+    printer_codepage: Optional[str] = None
+    printer_token: Optional[str] = None
+    printer_timeout: Optional[int] = None
+    printer_retries: Optional[int] = None
+    tz: Optional[str] = None
+
+
+class TestConnectionPayload(BaseModel):
+    printer_host: str
+    printer_port: int = 9100
 
 
 # --------------------------------------------------------------------------
@@ -375,20 +510,52 @@ def render_test(p: Network) -> None:
 # Auth
 # --------------------------------------------------------------------------
 def require_auth(authorization: Optional[str] = Header(default=None)) -> None:
-    if not PRINTER_TOKEN:
+    token = CONFIG.get("printer_token", "")
+    if not token:
         raise HTTPException(status_code=500,
                             detail="server auth token not configured")
-    expected = f"Bearer {PRINTER_TOKEN}"
+    expected = f"Bearer {token}"
     provided = authorization or ""
     if not hmac.compare_digest(provided, expected):
         raise HTTPException(status_code=401,
                             detail="missing or invalid bearer token")
 
 
+def _admin_required_when_setup(authorization: Optional[str] = Header(default=None)) -> None:
+    """Admin endpoints: open before setup is complete, bearer-protected after."""
+    if not CONFIG.get("setup_completed"):
+        return
+    require_auth(authorization)
+
+
+def _request_source(request: Request) -> Optional[str]:
+    ua = request.headers.get("user-agent", "")
+    host = request.client.host if request.client else "?"
+    return f"{host} {ua[:60]}".strip() or None
+
+
+def _summarize_payload(payload: BaseModel) -> str:
+    d = payload.model_dump()
+    return ", ".join(f"{k}={_short(v)}" for k, v in d.items() if v not in (None, "", [], False))
+
+
+def _short(v: Any) -> str:
+    s = str(v)
+    return s if len(s) <= 40 else s[:37] + "..."
+
+
 # --------------------------------------------------------------------------
 # Application
 # --------------------------------------------------------------------------
 app = FastAPI(title="printcast", description="HTTP->ESC/POS print bridge")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.exception_handler(PrintError)
@@ -399,13 +566,13 @@ def _print_error_handler(_request, exc: PrintError) -> JSONResponse:
 
 @app.get("/health")
 def health() -> dict:
-    reachable = tcp_reachable(PRINTER_HOST, PRINTER_PORT)
+    reachable = tcp_reachable(CONFIG["printer_host"], int(CONFIG["printer_port"]))
     return {
         "status": "ok" if reachable else "degraded",
         "service": SERVICE_NAME,
         "printer": {
-            "host": PRINTER_HOST,
-            "port": PRINTER_PORT,
+            "host": CONFIG["printer_host"],
+            "port": int(CONFIG["printer_port"]),
             "reachable": reachable,
         },
     }
@@ -426,32 +593,45 @@ def metrics() -> PlainTextResponse:
     return PlainTextResponse(body, media_type="text/plain; version=0.0.4; charset=utf-8")
 
 
+# --------------------------------------------------------------------------
+# Print endpoints
+# --------------------------------------------------------------------------
 @app.post("/print/text")
-def print_text(job: TextJob, _: None = Depends(require_auth)) -> dict:
-    run_print_job("text", lambda p: render_text(p, job))
+def print_text(job: TextJob, request: Request,
+               _: None = Depends(require_auth)) -> dict:
+    run_print_job("text", lambda p: render_text(p, job),
+                  source=_request_source(request),
+                  summary=_summarize_payload(job))
     return {"status": "printed", "job": "text"}
 
 
 @app.post("/print/receipt")
-def print_receipt(job: ReceiptJob, _: None = Depends(require_auth)) -> dict:
-    run_print_job("receipt", lambda p: render_receipt(p, job))
+def print_receipt(job: ReceiptJob, request: Request,
+                  _: None = Depends(require_auth)) -> dict:
+    run_print_job("receipt", lambda p: render_receipt(p, job),
+                  source=_request_source(request),
+                  summary=_summarize_payload(job))
     return {"status": "printed", "job": "receipt"}
 
 
 @app.post("/print/image")
-def print_image(job: ImageJob, _: None = Depends(require_auth)) -> dict:
+def print_image(job: ImageJob, request: Request,
+                _: None = Depends(require_auth)) -> dict:
     try:
         img = load_image(job.image)
     except Exception as exc:
         raise HTTPException(status_code=400,
                             detail=f"could not load image: {exc}")
     run_print_job("image",
-                  lambda p: render_image(p, img, job.align, job.caption, job.cut))
+                  lambda p: render_image(p, img, job.align, job.caption, job.cut),
+                  source=_request_source(request),
+                  summary=_summarize_payload(job))
     return {"status": "printed", "job": "image"}
 
 
 @app.post("/print")
-def print_generic(job: GenericJob, _: None = Depends(require_auth)) -> dict:
+def print_generic(job: GenericJob, request: Request,
+                  _: None = Depends(require_auth)) -> dict:
     if not any([job.text, job.title, job.qr, job.barcode, job.image]):
         raise HTTPException(
             status_code=400,
@@ -463,31 +643,236 @@ def print_generic(job: GenericJob, _: None = Depends(require_auth)) -> dict:
         except Exception as exc:
             raise HTTPException(status_code=400,
                                 detail=f"could not load image: {exc}")
-    run_print_job("generic", lambda p: render_generic(p, job, img))
+    run_print_job("generic", lambda p: render_generic(p, job, img),
+                  source=_request_source(request),
+                  summary=_summarize_payload(job))
     return {"status": "printed", "job": "generic"}
 
 
 @app.post("/print/test")
-def print_test(_: None = Depends(require_auth)) -> dict:
-    run_print_job("test", render_test)
+def print_test(request: Request, _: None = Depends(require_auth)) -> dict:
+    run_print_job("test", render_test,
+                  source=_request_source(request), summary="test")
     return {"status": "printed", "job": "test"}
+
+
+# --------------------------------------------------------------------------
+# Admin / wizard / analytics API
+# --------------------------------------------------------------------------
+def _public_config() -> dict[str, Any]:
+    token = CONFIG.get("printer_token") or ""
+    return {
+        "printer_host": CONFIG["printer_host"],
+        "printer_port": int(CONFIG["printer_port"]),
+        "printer_codepage": CONFIG["printer_codepage"],
+        "printer_timeout": int(CONFIG["printer_timeout"]),
+        "printer_retries": int(CONFIG["printer_retries"]),
+        "tz": CONFIG["tz"],
+        "setup_completed": bool(CONFIG.get("setup_completed")),
+        "token_set": bool(token),
+        "token_preview": (token[:4] + "…" + token[-4:]) if len(token) >= 12 else ("set" if token else ""),
+    }
+
+
+@app.get("/api/setup/status")
+def setup_status() -> dict:
+    return {
+        "setup_completed": bool(CONFIG.get("setup_completed")),
+        "has_token": bool(CONFIG.get("printer_token")),
+        "has_host": bool(CONFIG.get("printer_host")),
+    }
+
+
+@app.post("/api/setup/generate-token")
+def generate_token(_: None = Depends(_admin_required_when_setup)) -> dict:
+    return {"token": secrets.token_hex(32)}
+
+
+@app.post("/api/setup/test-connection")
+def test_connection(payload: TestConnectionPayload,
+                    _: None = Depends(_admin_required_when_setup)) -> dict:
+    reachable = tcp_reachable(payload.printer_host, payload.printer_port, timeout=5)
+    return {"reachable": reachable, "host": payload.printer_host, "port": payload.printer_port}
+
+
+@app.post("/api/setup/complete")
+def setup_complete(payload: SetupPayload,
+                   _: None = Depends(_admin_required_when_setup)) -> dict:
+    with CONFIG_LOCK:
+        CONFIG["printer_host"] = payload.printer_host.strip()
+        CONFIG["printer_port"] = int(payload.printer_port)
+        CONFIG["printer_codepage"] = payload.printer_codepage.strip() or "CP858"
+        CONFIG["printer_token"] = payload.printer_token.strip()
+        CONFIG["printer_timeout"] = max(1, int(payload.printer_timeout))
+        CONFIG["printer_retries"] = max(1, int(payload.printer_retries))
+        CONFIG["tz"] = payload.tz.strip() or "Europe/Paris"
+        CONFIG["setup_completed"] = True
+        _save_persisted_config()
+    log("setup.completed", host=CONFIG["printer_host"], port=CONFIG["printer_port"])
+    return {"status": "ok", "config": _public_config()}
+
+
+@app.get("/api/config")
+def get_config(_: None = Depends(require_auth)) -> dict:
+    return _public_config()
+
+
+@app.put("/api/config")
+def update_config(payload: ConfigUpdate, _: None = Depends(require_auth)) -> dict:
+    with CONFIG_LOCK:
+        data = payload.model_dump(exclude_none=True)
+        for key, value in data.items():
+            if isinstance(value, str):
+                value = value.strip()
+            if key in ("printer_port", "printer_timeout", "printer_retries"):
+                value = max(1, int(value))
+            CONFIG[key] = value
+        _save_persisted_config()
+    log("config.updated", changed=list(data.keys()))
+    return {"status": "ok", "config": _public_config()}
+
+
+@app.get("/api/jobs")
+def list_jobs(limit: int = 100, status: Optional[str] = None,
+              _: None = Depends(require_auth)) -> dict:
+    limit = max(1, min(int(limit), 500))
+    query = "SELECT id, ts, job_type, status, duration_ms, attempts, error, source, payload_summary FROM jobs"
+    params: list[Any] = []
+    if status in ("success", "error"):
+        query += " WHERE status = ?"
+        params.append(status)
+    query += " ORDER BY ts DESC LIMIT ?"
+    params.append(limit)
+    with _db() as conn:
+        rows = [dict(r) for r in conn.execute(query, params).fetchall()]
+    return {"jobs": rows}
+
+
+@app.get("/api/analytics/summary")
+def analytics_summary(_: None = Depends(require_auth)) -> dict:
+    now = time.time()
+    cutoff_24h = now - 86400
+    cutoff_7d = now - 7 * 86400
+    with _db() as conn:
+        totals = {r["status"]: r["n"] for r in conn.execute(
+            "SELECT status, COUNT(*) AS n FROM jobs GROUP BY status").fetchall()}
+        day_counts = {r["status"]: r["n"] for r in conn.execute(
+            "SELECT status, COUNT(*) AS n FROM jobs WHERE ts >= ? GROUP BY status",
+            (cutoff_24h,)).fetchall()}
+        week_counts = {r["status"]: r["n"] for r in conn.execute(
+            "SELECT status, COUNT(*) AS n FROM jobs WHERE ts >= ? GROUP BY status",
+            (cutoff_7d,)).fetchall()}
+        avg_duration = conn.execute(
+            "SELECT AVG(duration_ms) AS d FROM jobs WHERE status='success' AND ts >= ?",
+            (cutoff_7d,)).fetchone()["d"] or 0
+        by_type = [dict(r) for r in conn.execute(
+            """SELECT job_type, status, COUNT(*) AS n
+               FROM jobs WHERE ts >= ?
+               GROUP BY job_type, status""", (cutoff_7d,)).fetchall()]
+        last_job = conn.execute(
+            "SELECT ts, job_type, status, error FROM jobs ORDER BY ts DESC LIMIT 1").fetchone()
+        recent_errors = [dict(r) for r in conn.execute(
+            """SELECT id, ts, job_type, error, source FROM jobs
+               WHERE status='error' ORDER BY ts DESC LIMIT 10""").fetchall()]
+    total_success = totals.get("success", 0)
+    total_error = totals.get("error", 0)
+    total_all = total_success + total_error
+    success_rate = (total_success / total_all * 100) if total_all else 0.0
+    return {
+        "totals": {"success": total_success, "error": total_error, "all": total_all,
+                   "success_rate": round(success_rate, 2)},
+        "last_24h": {"success": day_counts.get("success", 0),
+                     "error": day_counts.get("error", 0)},
+        "last_7d": {"success": week_counts.get("success", 0),
+                    "error": week_counts.get("error", 0)},
+        "avg_duration_ms_7d": round(avg_duration, 1),
+        "by_type_7d": by_type,
+        "last_job": dict(last_job) if last_job else None,
+        "recent_errors": recent_errors,
+        "printer_reachable": tcp_reachable(CONFIG["printer_host"],
+                                           int(CONFIG["printer_port"])),
+        "metrics": METRICS,
+    }
+
+
+@app.get("/api/analytics/timeseries")
+def analytics_timeseries(hours: int = 24,
+                         _: None = Depends(require_auth)) -> dict:
+    hours = max(1, min(int(hours), 24 * 30))
+    bucket_seconds = 3600 if hours <= 48 else 86400
+    now = time.time()
+    cutoff = now - hours * 3600
+    buckets: dict[int, dict[str, int]] = {}
+    with _db() as conn:
+        for row in conn.execute(
+            "SELECT ts, status FROM jobs WHERE ts >= ?", (cutoff,)
+        ).fetchall():
+            bucket = int(row["ts"] // bucket_seconds) * bucket_seconds
+            slot = buckets.setdefault(bucket, {"success": 0, "error": 0})
+            slot[row["status"]] = slot.get(row["status"], 0) + 1
+    start_bucket = int(cutoff // bucket_seconds) * bucket_seconds
+    end_bucket = int(now // bucket_seconds) * bucket_seconds
+    series = []
+    bucket = start_bucket
+    while bucket <= end_bucket:
+        slot = buckets.get(bucket, {"success": 0, "error": 0})
+        series.append({
+            "ts": bucket,
+            "success": slot.get("success", 0),
+            "error": slot.get("error", 0),
+        })
+        bucket += bucket_seconds
+    return {"series": series, "bucket_seconds": bucket_seconds}
+
+
+# --------------------------------------------------------------------------
+# Frontend static files
+# --------------------------------------------------------------------------
+INDEX_HTML = FRONTEND_DIR / "index.html"
+
+
+def _mount_frontend() -> None:
+    if not FRONTEND_DIR.exists() or not INDEX_HTML.exists():
+        log("frontend.missing", level=logging.WARNING, path=str(FRONTEND_DIR))
+        return
+    assets = FRONTEND_DIR / "assets"
+    if assets.exists():
+        app.mount("/assets", StaticFiles(directory=str(assets)), name="assets")
+
+    @app.get("/")
+    def _root() -> FileResponse:
+        return FileResponse(str(INDEX_HTML))
+
+    @app.get("/{full_path:path}")
+    def _spa(full_path: str) -> FileResponse:
+        if full_path.startswith(("api/", "print", "health", "metrics", "assets/")):
+            raise HTTPException(status_code=404)
+        candidate = FRONTEND_DIR / full_path
+        if candidate.is_file():
+            return FileResponse(str(candidate))
+        return FileResponse(str(INDEX_HTML))
 
 
 # --------------------------------------------------------------------------
 # Entry point
 # --------------------------------------------------------------------------
 def main() -> None:
-    missing = [k for k in ("PRINTER_HOST", "PRINTER_TOKEN")
-               if not os.environ.get(k)]
-    if missing:
-        log("config.error", level=logging.ERROR, missing=missing,
-            detail="required environment variables are not set")
-        sys.exit(1)
-
     log("service.start", service=SERVICE_NAME, listen="0.0.0.0:8080",
-        printer_host=PRINTER_HOST, printer_port=PRINTER_PORT,
-        codepage=PRINTER_CODEPAGE, retries=RETRIES, tz=TZ_NAME)
+        printer_host=CONFIG["printer_host"] or "(unconfigured)",
+        printer_port=CONFIG["printer_port"],
+        codepage=CONFIG["printer_codepage"],
+        retries=CONFIG["printer_retries"], tz=CONFIG["tz"],
+        setup_completed=CONFIG["setup_completed"],
+        data_dir=str(DATA_DIR), frontend_dir=str(FRONTEND_DIR))
+    if not CONFIG["printer_host"] or not CONFIG["printer_token"]:
+        log("service.awaiting_setup", level=logging.WARNING,
+            detail="open the web UI at / to complete the setup wizard")
     uvicorn.run(app, host="0.0.0.0", port=8080, log_level="info")
+
+
+# Initialize for module-level import (uvicorn `app:app`).
+_init_db()
+_mount_frontend()
 
 
 if __name__ == "__main__":
