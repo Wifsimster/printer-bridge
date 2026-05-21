@@ -186,10 +186,10 @@ jobs:
           context: .
           push: true
           tags: |
-            ghcr.io/wifsimster/printer-bridge:latest
-            ghcr.io/wifsimster/printer-bridge:v${{ steps.version.outputs.new_version }}
-            ghcr.io/wifsimster/printer-bridge:${{ steps.version.outputs.minor }}
-            ghcr.io/wifsimster/printer-bridge:${{ steps.version.outputs.major }}
+            ghcr.io/wifsimster/printcast:latest
+            ghcr.io/wifsimster/printcast:v${{ steps.version.outputs.new_version }}
+            ghcr.io/wifsimster/printcast:${{ steps.version.outputs.minor }}
+            ghcr.io/wifsimster/printcast:${{ steps.version.outputs.major }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
