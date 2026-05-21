@@ -1,0 +1,43 @@
+name: Deploy — homelab
+
+# Runs on the self-hosted runner alongside the target docker host. Fires
+# after the upstream image-publishing workflow succeeds on main, pulls
+# `:latest`, reconciles the compose stack, and prunes dangling images.
+
+on:
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-homelab-${{ github.repository }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Pull & reconcile
+    runs-on: [self-hosted]
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || github.event.workflow_run.conclusion == 'success'
+    defaults:
+      run:
+        working-directory: /opt/docker/printer-bridge
+    steps:
+      - name: Pull latest image(s)
+        run: docker compose pull
+
+      - name: Reconcile stack
+        run: docker compose up -d
+
+      - name: Show status
+        run: docker compose ps
+
+      - name: Prune dangling images
+        working-directory: /
+        run: docker image prune -f

@@ -1,0 +1,217 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      version_type:
+        description: "Version bump type"
+        required: false
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: "patch"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  detect-release:
+    name: Detect Release Type
+    runs-on: ubuntu-latest
+    # Skip CI's own version bump commits
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (
+        github.event_name == 'push'
+        && github.actor != 'github-actions[bot]'
+        && !startsWith(github.event.head_commit.message, 'chore: bump version')
+      )
+    outputs:
+      should_release: ${{ steps.check.outputs.should_release }}
+      bump_type: ${{ steps.check.outputs.bump_type }}
+    steps:
+      - name: Analyze commit for release type
+        id: check
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+          EVENT_NAME: ${{ github.event_name }}
+          VERSION_INPUT: ${{ inputs.version_type }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "should_release=true" >> $GITHUB_OUTPUT
+            echo "bump_type=$VERSION_INPUT" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          FIRST_LINE=$(echo "$COMMIT_MSG" | head -1)
+
+          # If this is a merge commit, use the PR title (3rd line) instead
+          if echo "$FIRST_LINE" | grep -qE "^Merge pull request #"; then
+            FIRST_LINE=$(echo "$COMMIT_MSG" | sed -n '3p')
+          fi
+
+          if echo "$FIRST_LINE" | grep -qE "^(feat|feature)(\(.+\))?!:|^BREAKING CHANGE:"; then
+            echo "should_release=true" >> $GITHUB_OUTPUT
+            echo "bump_type=major" >> $GITHUB_OUTPUT
+          elif echo "$FIRST_LINE" | grep -qE "^(feat|feature)(\(.+\))?:"; then
+            echo "should_release=true" >> $GITHUB_OUTPUT
+            echo "bump_type=minor" >> $GITHUB_OUTPUT
+          elif echo "$FIRST_LINE" | grep -qE "^(fix|perf)(\(.+\))?:"; then
+            echo "should_release=true" >> $GITHUB_OUTPUT
+            echo "bump_type=patch" >> $GITHUB_OUTPUT
+          elif echo "$FIRST_LINE" | grep -qE "^\[[a-z][a-z0-9-]+\] "; then
+            # Bracketed-scope titles like "[ops] ..." don't carry semver
+            # intent the way conventional commits do, so we ship them as
+            # a patch by default. To force minor / major, use
+            # workflow_dispatch with version_type=minor|major.
+            echo "should_release=true" >> $GITHUB_OUTPUT
+            echo "bump_type=patch" >> $GITHUB_OUTPUT
+          else
+            echo "should_release=false" >> $GITHUB_OUTPUT
+          fi
+
+  lint:
+    name: Lint & Smoke Test
+    runs-on: ubuntu-latest
+    needs: [detect-release]
+    if: needs.detect-release.outputs.should_release == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install ruff
+
+      - name: Ruff lint
+        run: ruff check app.py
+
+      - name: Byte-compile
+        run: python -m compileall -q app.py
+
+      - name: Import smoke test
+        env:
+          PRINTER_HOST: "127.0.0.1"
+          PRINTER_TOKEN: "ci-test-token"
+        run: python -c "import app; assert app.SERVICE_NAME == 'printcast'"
+
+  release:
+    name: Create Release & Publish Docker Image
+    runs-on: ubuntu-latest
+    needs: [lint, detect-release]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump version
+        id: version
+        env:
+          BUMP_TYPE: ${{ needs.detect-release.outputs.bump_type }}
+        run: |
+          CURRENT=$(cat VERSION | tr -d '[:space:]')
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+          case "$BUMP_TYPE" in
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH + 1)) ;;
+            *) echo "::error::Unknown bump type: $BUMP_TYPE"; exit 1 ;;
+          esac
+          NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          echo "${NEW_VERSION}" > VERSION
+          echo "new_version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+          echo "major=${MAJOR}" >> $GITHUB_OUTPUT
+          echo "minor=${MAJOR}.${MINOR}" >> $GITHUB_OUTPUT
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          echo "## What's Changed" > CHANGELOG_TEMP.md
+          echo "" >> CHANGELOG_TEMP.md
+          if [ -z "$PREVIOUS_TAG" ]; then
+            git log --pretty=format:"- %s (%h)" >> CHANGELOG_TEMP.md
+          else
+            git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s (%h)" --no-merges >> CHANGELOG_TEMP.md
+          fi
+          echo "changelog_file=CHANGELOG_TEMP.md" >> $GITHUB_OUTPUT
+
+      - name: Commit version bump
+        run: |
+          git add VERSION
+          git commit -m "chore: bump version to ${{ steps.version.outputs.new_version }}"
+
+      - name: Create tag
+        run: git tag -fa "v${{ steps.version.outputs.new_version }}" -m "Release v${{ steps.version.outputs.new_version }}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/wifsimster/printer-bridge:latest
+            ghcr.io/wifsimster/printer-bridge:v${{ steps.version.outputs.new_version }}
+            ghcr.io/wifsimster/printer-bridge:${{ steps.version.outputs.minor }}
+            ghcr.io/wifsimster/printer-bridge:${{ steps.version.outputs.major }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.version.outputs.new_version }}
+          build-args: |
+            VERSION=${{ steps.version.outputs.new_version }}
+            BUILD_DATE=${{ github.event.repository.updated_at }}
+            VCS_REF=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max,ignore-error=true
+          platforms: linux/amd64
+
+      - name: Push changes
+        run: |
+          git push origin HEAD:main
+          git push origin "v${{ steps.version.outputs.new_version }}"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.new_version }}
+          name: Release v${{ steps.version.outputs.new_version }}
+          body_path: ${{ steps.changelog.outputs.changelog_file }}
+          draft: false
+          prerelease: false

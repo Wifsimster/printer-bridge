@@ -2,6 +2,7 @@ name: printcast
 
 services:
   printcast:
+    image: ghcr.io/wifsimster/printer-bridge:latest
     build: .
     container_name: printcast
     restart: unless-stopped
