@@ -86,6 +86,11 @@ CONFIG: dict[str, Any] = {
     "printer_timeout": _int_env("PRINTER_TIMEOUT", 20),
     "printer_retries": max(1, _int_env("PRINTER_RETRIES", 3)),
     "tz": os.environ.get("TZ", "Europe/Paris"),
+    # Per-IP rate limit for /print* endpoints. Set either limit to 0 to
+    # disable that window. Defaults are conservative so a public deployment
+    # is not DOS'd through paper/ink even if the bearer token leaks.
+    "rate_limit_per_minute": max(0, _int_env("RATE_LIMIT_PER_MINUTE", 10)),
+    "rate_limit_per_hour": max(0, _int_env("RATE_LIMIT_PER_HOUR", 100)),
     "setup_completed": False,
 }
 CONFIG_LOCK = threading.Lock()
@@ -452,6 +457,8 @@ class ConfigUpdate(BaseModel):
     printer_timeout: Optional[int] = None
     printer_retries: Optional[int] = None
     tz: Optional[str] = None
+    rate_limit_per_minute: Optional[int] = None
+    rate_limit_per_hour: Optional[int] = None
 
 
 class TestConnectionPayload(BaseModel):
@@ -649,10 +656,68 @@ def _admin_required_when_setup(request: Request) -> None:
     require_admin(require_session(request))
 
 
+def _client_ip(request: Request) -> str:
+    # When behind a trusted reverse proxy the real caller is in X-Forwarded-For;
+    # otherwise everyone shares the proxy's IP and a single client can starve
+    # the bucket for the whole internet. Fall back to the socket peer.
+    forwarded = request.headers.get("x-forwarded-for", "").strip()
+    if forwarded:
+        first = forwarded.split(",", 1)[0].strip()
+        if first:
+            return first
+    return request.client.host if request.client else "?"
+
+
 def _request_source(request: Request) -> Optional[str]:
     ua = request.headers.get("user-agent", "")
-    host = request.client.host if request.client else "?"
-    return f"{host} {ua[:60]}".strip() or None
+    return f"{_client_ip(request)} {ua[:60]}".strip() or None
+
+
+# Per-IP sliding-window rate limiter for /print* endpoints. In-memory and
+# thread-safe; a single printer instance does not need anything heavier.
+RATE_LIMIT_LOCK = threading.Lock()
+RATE_LIMIT_BUCKETS: dict[str, list[float]] = {}
+RATE_LIMIT_MAX_CLIENTS = 1000
+
+
+def enforce_rate_limit(request: Request) -> None:
+    per_min = max(0, int(CONFIG.get("rate_limit_per_minute", 0) or 0))
+    per_hour = max(0, int(CONFIG.get("rate_limit_per_hour", 0) or 0))
+    if per_min == 0 and per_hour == 0:
+        return
+    ip = _client_ip(request)
+    now = time.monotonic()
+    window = 3600.0 if per_hour else 60.0
+    with RATE_LIMIT_LOCK:
+        history = RATE_LIMIT_BUCKETS.setdefault(ip, [])
+        cutoff = now - window
+        history[:] = [t for t in history if t > cutoff]
+        # Cap tracked clients so a flood from many IPs can't exhaust memory.
+        if len(RATE_LIMIT_BUCKETS) > RATE_LIMIT_MAX_CLIENTS:
+            for k in list(RATE_LIMIT_BUCKETS.keys()):
+                if not RATE_LIMIT_BUCKETS[k] and k != ip:
+                    del RATE_LIMIT_BUCKETS[k]
+                    if len(RATE_LIMIT_BUCKETS) <= RATE_LIMIT_MAX_CLIENTS:
+                        break
+        retry_after: Optional[int] = None
+        if per_min:
+            recent = [t for t in history if t > now - 60.0]
+            if len(recent) >= per_min:
+                retry_after = max(1, int(min(recent) + 60.0 - now) + 1)
+        if per_hour and retry_after is None:
+            recent_h = [t for t in history if t > now - 3600.0]
+            if len(recent_h) >= per_hour:
+                retry_after = max(1, int(min(recent_h) + 3600.0 - now) + 1)
+        if retry_after is not None:
+            log("ratelimit.blocked", level=logging.WARNING,
+                ip=ip, retry_after=retry_after,
+                per_minute=per_min, per_hour=per_hour)
+            raise HTTPException(
+                status_code=429,
+                detail=f"rate limit exceeded, retry in {retry_after}s",
+                headers={"Retry-After": str(retry_after)},
+            )
+        history.append(now)
 
 
 def _summarize_payload(payload: BaseModel) -> str:
@@ -733,7 +798,8 @@ def metrics() -> PlainTextResponse:
 # Print endpoints
 # --------------------------------------------------------------------------
 @app.post("/print/text")
-def print_text(job: TextJob, request: Request) -> dict:
+def print_text(job: TextJob, request: Request,
+               _rl: None = Depends(enforce_rate_limit)) -> dict:
     run_print_job("text", lambda p: render_text(p, job),
                   source=_request_source(request),
                   summary=_summarize_payload(job))
@@ -742,6 +808,7 @@ def print_text(job: TextJob, request: Request) -> dict:
 
 @app.post("/print/receipt")
 def print_receipt(job: ReceiptJob, request: Request,
+                  _rl: None = Depends(enforce_rate_limit),
                   _: dict = Depends(_require_bearer)) -> dict:
     run_print_job("receipt", lambda p: render_receipt(p, job),
                   source=_request_source(request),
@@ -750,7 +817,8 @@ def print_receipt(job: ReceiptJob, request: Request,
 
 
 @app.post("/print/image")
-def print_image(job: ImageJob, request: Request) -> dict:
+def print_image(job: ImageJob, request: Request,
+                _rl: None = Depends(enforce_rate_limit)) -> dict:
     try:
         img = load_image(job.image)
     except Exception as exc:
@@ -765,6 +833,7 @@ def print_image(job: ImageJob, request: Request) -> dict:
 
 @app.post("/print")
 def print_generic(job: GenericJob, request: Request,
+                  _rl: None = Depends(enforce_rate_limit),
                   _: dict = Depends(_require_bearer)) -> dict:
     if not any([job.text, job.title, job.qr, job.barcode, job.image]):
         raise HTTPException(
@@ -784,7 +853,9 @@ def print_generic(job: GenericJob, request: Request,
 
 
 @app.post("/print/test")
-def print_test(request: Request, _: dict = Depends(require_admin)) -> dict:
+def print_test(request: Request,
+               _rl: None = Depends(enforce_rate_limit),
+               _: dict = Depends(require_admin)) -> dict:
     run_print_job("test", render_test,
                   source=_request_source(request), summary="test")
     return {"status": "printed", "job": "test"}
@@ -809,6 +880,8 @@ def _public_config() -> dict[str, Any]:
         "printer_timeout": int(CONFIG["printer_timeout"]),
         "printer_retries": int(CONFIG["printer_retries"]),
         "tz": CONFIG["tz"],
+        "rate_limit_per_minute": int(CONFIG.get("rate_limit_per_minute", 0) or 0),
+        "rate_limit_per_hour": int(CONFIG.get("rate_limit_per_hour", 0) or 0),
         "setup_completed": bool(CONFIG.get("setup_completed")),
         "token_set": bool(token),
         "token_preview": (token[:4] + "…" + token[-4:]) if len(token) >= 12 else ("set" if token else ""),
@@ -909,6 +982,8 @@ def update_config(payload: ConfigUpdate, _: dict = Depends(require_admin)) -> di
                 value = value.strip()
             if key in ("printer_port", "printer_timeout", "printer_retries"):
                 value = max(1, int(value))
+            elif key in ("rate_limit_per_minute", "rate_limit_per_hour"):
+                value = max(0, int(value))
             CONFIG[key] = value
         _save_persisted_config()
     log("config.updated", changed=list(data.keys()))
