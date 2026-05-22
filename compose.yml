@@ -6,6 +6,10 @@ services:
     container_name: printcast
     restart: unless-stopped
     env_file: .env
+    # Required env vars in .env:
+    #   PRINTER_HOST=...                            # if not relying on autodiscovery
+    #   AUTH_SECRET=<32+ byte random hex>           # better-auth cookie signing
+    #   AUTH_TRUSTED_ORIGINS=https://printcast.example.com   # public URL(s), comma-separated
     volumes:
       - printcast-data:/app/data
     security_opt:
@@ -13,7 +17,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 256M
+          memory: 384M
     logging:
       driver: json-file
       options:

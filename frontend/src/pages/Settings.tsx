@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { ApiError, ConfigResponse, endpoints, setToken } from "@/lib/api";
+import { ApiError, ConfigResponse, endpoints } from "@/lib/api";
 
 export function Settings() {
   const [config, setConfig] = useState<ConfigResponse | null>(null);
@@ -77,9 +77,8 @@ export function Settings() {
     try {
       const result = await endpoints.updateConfig({ printer_token: token });
       setConfig(result.config);
-      setToken(token);
       setNewToken("");
-      toast.success("Token rotated — using new credentials");
+      toast.success("Webhook token rotated — update your /print/* callers");
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Failed");
     } finally {

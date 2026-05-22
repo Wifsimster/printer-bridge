@@ -8,33 +8,27 @@ import {
 } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { Loader2, ShieldAlert } from "lucide-react";
-import { clearToken, endpoints, getToken, Me } from "@/lib/api";
+import { endpoints, Me } from "@/lib/api";
 
 type AuthState = {
   me: Me | null;
   loading: boolean;
   refresh: () => Promise<void>;
-  signOut: () => void;
+  signOut: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthState | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<Me | null>(null);
-  const [loading, setLoading] = useState<boolean>(() => Boolean(getToken()));
+  const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
-    if (!getToken()) {
-      setMe(null);
-      setLoading(false);
-      return;
-    }
     setLoading(true);
     try {
       setMe(await endpoints.me());
     } catch {
       setMe(null);
-      clearToken();
     } finally {
       setLoading(false);
     }
@@ -44,8 +38,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     refresh();
   }, [refresh]);
 
-  const signOut = useCallback(() => {
-    clearToken();
+  const signOut = useCallback(async () => {
+    try {
+      await endpoints.signOut();
+    } catch {
+      // best-effort; clear local state regardless
+    }
     setMe(null);
   }, []);
 
@@ -82,8 +80,8 @@ export function RequireAdmin({ children }: { children: ReactNode }) {
         <ShieldAlert className="h-10 w-10 text-destructive" />
         <h2 className="text-lg font-semibold">Admin role required</h2>
         <p className="max-w-sm text-sm text-muted-foreground">
-          You are signed in as <span className="font-mono">{me.username}</span>{" "}
-          ({me.role}). This page is restricted to administrators.
+          You are signed in as <span className="font-mono">{me.email}</span> (
+          {me.role}). This page is restricted to administrators.
         </p>
       </div>
     );

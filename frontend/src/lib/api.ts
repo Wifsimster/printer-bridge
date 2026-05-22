@@ -1,17 +1,6 @@
-const TOKEN_KEY = "printcast.token";
-
-export function getToken(): string {
-  return localStorage.getItem(TOKEN_KEY) ?? "";
-}
-
-export function setToken(token: string): void {
-  if (token) localStorage.setItem(TOKEN_KEY, token);
-  else localStorage.removeItem(TOKEN_KEY);
-}
-
-export function clearToken(): void {
-  localStorage.removeItem(TOKEN_KEY);
-}
+// Auth is now session-cookie based (better-auth via a sidecar). The previous
+// localStorage bearer token is gone. We still POST to /api/auth/* through the
+// FastAPI reverse proxy so everything stays same-origin and cookies "just work".
 
 type FetchOptions = RequestInit & { auth?: boolean };
 
@@ -19,16 +8,16 @@ export async function api<T = unknown>(
   path: string,
   options: FetchOptions = {}
 ): Promise<T> {
-  const { auth = true, headers, ...rest } = options;
+  const { auth: _auth = true, headers, ...rest } = options;
   const finalHeaders: Record<string, string> = {
     "Content-Type": "application/json",
     ...(headers as Record<string, string> | undefined),
   };
-  if (auth) {
-    const token = getToken();
-    if (token) finalHeaders["Authorization"] = `Bearer ${token}`;
-  }
-  const res = await fetch(path, { ...rest, headers: finalHeaders });
+  const res = await fetch(path, {
+    credentials: "include",
+    ...rest,
+    headers: finalHeaders,
+  });
   const text = await res.text();
   const body = text ? safeJson(text) : null;
   if (!res.ok) {
@@ -114,7 +103,9 @@ export type TimeseriesResponse = {
 };
 
 export type Me = {
-  username: string;
+  id: string;
+  email: string;
+  name: string;
   role: "admin" | string;
 };
 
@@ -130,6 +121,13 @@ export type PrinterCandidate = {
 export const endpoints = {
   setupStatus: () => api<SetupStatus>("/api/setup/status", { auth: false }),
   me: () => api<Me>("/api/me"),
+  signIn: (email: string, password: string) =>
+    api<unknown>("/api/auth/sign-in/email", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    }),
+  signOut: () =>
+    api<unknown>("/api/auth/sign-out", { method: "POST", body: "{}" }),
   generateToken: () =>
     api<{ token: string }>("/api/setup/generate-token", { method: "POST" }),
   testConnection: (printer_host: string, printer_port: number) =>

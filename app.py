@@ -25,11 +25,13 @@ from pathlib import Path
 from typing import Any, Callable, Literal, Optional
 from zoneinfo import ZoneInfo
 
+import httpx
 import requests
 import uvicorn
 from escpos.printer import Network
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi import Response
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
@@ -85,11 +87,13 @@ CONFIG: dict[str, Any] = {
     "printer_retries": max(1, _int_env("PRINTER_RETRIES", 3)),
     "tz": os.environ.get("TZ", "Europe/Paris"),
     "setup_completed": False,
-    # Single-user auth model: the bearer token grants the admin role.
-    "admin_username": os.environ.get("PRINTCAST_ADMIN_USERNAME", "admin"),
-    "admin_role": "admin",
 }
 CONFIG_LOCK = threading.Lock()
+
+# The better-auth sidecar runs as a separate process inside the container.
+# FastAPI reverse-proxies /api/auth/* to it and validates session cookies via
+# the sidecar's /__auth/whoami helper endpoint.
+AUTH_INTERNAL_URL = os.environ.get("PRINTCAST_AUTH_URL", "http://127.0.0.1:8090")
 
 
 def _load_persisted_config() -> None:
@@ -435,7 +439,9 @@ class SetupPayload(BaseModel):
     printer_timeout: int = 20
     printer_retries: int = 3
     tz: str = "Europe/Paris"
-    admin_username: str = "admin"
+    admin_email: str
+    admin_password: str
+    admin_name: Optional[str] = None
 
 
 class ConfigUpdate(BaseModel):
@@ -552,7 +558,9 @@ def render_test(p: Network) -> None:
 # --------------------------------------------------------------------------
 # Auth
 # --------------------------------------------------------------------------
-def require_auth(authorization: Optional[str] = Header(default=None)) -> dict:
+def _require_bearer(authorization: Optional[str] = Header(default=None)) -> dict:
+    """Bearer-token gate for machine-to-machine webhook callers (n8n, HA,
+    ntfy). The admin UI uses session cookies instead — see require_session."""
     token = CONFIG.get("printer_token", "")
     if not token:
         raise HTTPException(status_code=500,
@@ -562,13 +570,32 @@ def require_auth(authorization: Optional[str] = Header(default=None)) -> dict:
     if not hmac.compare_digest(provided, expected):
         raise HTTPException(status_code=401,
                             detail="missing or invalid bearer token")
-    return {
-        "username": CONFIG.get("admin_username", "admin"),
-        "role": CONFIG.get("admin_role", "admin"),
-    }
+    return {"username": "webhook", "role": "service", "auth": "bearer"}
 
 
-def require_admin(user: dict = Depends(require_auth)) -> dict:
+def require_session(request: Request) -> dict:
+    """Validate the better-auth session cookie by calling the sidecar's
+    /__auth/whoami. Returns {id, email, name, role}."""
+    cookie = request.headers.get("cookie", "")
+    if not cookie:
+        raise HTTPException(status_code=401, detail="not authenticated")
+    try:
+        r = requests.get(f"{AUTH_INTERNAL_URL}/__auth/whoami",
+                         headers={"cookie": cookie},
+                         timeout=5)
+    except requests.RequestException as exc:
+        raise HTTPException(status_code=503,
+                            detail=f"auth service unreachable: {exc}") from exc
+    if r.status_code == 401:
+        raise HTTPException(status_code=401, detail="not authenticated")
+    if r.status_code != 200:
+        raise HTTPException(status_code=502, detail="auth service error")
+    user = r.json().get("user") or {}
+    user["auth"] = "session"
+    return user
+
+
+def require_admin(user: dict = Depends(require_session)) -> dict:
     """Gate admin-only routes (settings, analytics, test print)."""
     if user.get("role") != "admin":
         raise HTTPException(status_code=403,
@@ -576,11 +603,23 @@ def require_admin(user: dict = Depends(require_auth)) -> dict:
     return user
 
 
-def _admin_required_when_setup(authorization: Optional[str] = Header(default=None)) -> None:
-    """Admin endpoints: open before setup is complete, bearer-protected after."""
+def require_admin_or_bearer(
+    request: Request,
+    authorization: Optional[str] = Header(default=None),
+) -> dict:
+    """Accept either a logged-in admin (session cookie) or the shared bearer
+    token. Used by /print/* endpoints so the admin UI and machine callers can
+    both trigger prints."""
+    if authorization:
+        return _require_bearer(authorization)
+    return require_admin(require_session(request))
+
+
+def _admin_required_when_setup(request: Request) -> None:
+    """Wizard endpoints: open before setup is complete, session-protected after."""
     if not CONFIG.get("setup_completed"):
         return
-    require_auth(authorization)
+    require_admin(require_session(request))
 
 
 def _request_source(request: Request) -> Optional[str]:
@@ -639,7 +678,7 @@ def health() -> dict:
 
 
 @app.get("/discover")
-def discover(_: None = Depends(require_auth)) -> dict:
+def discover(_: dict = Depends(_require_bearer)) -> dict:
     """List printer candidates currently reachable on the LAN."""
     port = int(CONFIG["printer_port"])
     candidates = discover_printers(port=port)
@@ -668,7 +707,7 @@ def metrics() -> PlainTextResponse:
 # --------------------------------------------------------------------------
 @app.post("/print/text")
 def print_text(job: TextJob, request: Request,
-               _: None = Depends(require_auth)) -> dict:
+               _: dict = Depends(_require_bearer)) -> dict:
     run_print_job("text", lambda p: render_text(p, job),
                   source=_request_source(request),
                   summary=_summarize_payload(job))
@@ -677,7 +716,7 @@ def print_text(job: TextJob, request: Request,
 
 @app.post("/print/receipt")
 def print_receipt(job: ReceiptJob, request: Request,
-                  _: None = Depends(require_auth)) -> dict:
+                  _: dict = Depends(_require_bearer)) -> dict:
     run_print_job("receipt", lambda p: render_receipt(p, job),
                   source=_request_source(request),
                   summary=_summarize_payload(job))
@@ -686,7 +725,7 @@ def print_receipt(job: ReceiptJob, request: Request,
 
 @app.post("/print/image")
 def print_image(job: ImageJob, request: Request,
-                _: None = Depends(require_auth)) -> dict:
+                _: dict = Depends(_require_bearer)) -> dict:
     try:
         img = load_image(job.image)
     except Exception as exc:
@@ -701,7 +740,7 @@ def print_image(job: ImageJob, request: Request,
 
 @app.post("/print")
 def print_generic(job: GenericJob, request: Request,
-                  _: None = Depends(require_auth)) -> dict:
+                  _: dict = Depends(_require_bearer)) -> dict:
     if not any([job.text, job.title, job.qr, job.barcode, job.image]):
         raise HTTPException(
             status_code=400,
@@ -746,8 +785,21 @@ def _public_config() -> dict[str, Any]:
 
 @app.get("/api/setup/status")
 def setup_status() -> dict:
+    # If the persisted config says setup is done but the auth sidecar has no
+    # users (e.g. upgrade from the pre-better-auth release, or someone wiped
+    # the auth DB), funnel the user back through the wizard instead of
+    # locking them out.
+    completed = bool(CONFIG.get("setup_completed"))
+    if completed:
+        try:
+            r = requests.get(f"{AUTH_INTERNAL_URL}/__auth/has-users", timeout=3)
+            if r.status_code == 200 and not r.json().get("has_users"):
+                completed = False
+        except requests.RequestException:
+            # Auth sidecar down; report current state and let the proxy 503 later.
+            pass
     return {
-        "setup_completed": bool(CONFIG.get("setup_completed")),
+        "setup_completed": completed,
         "has_token": bool(CONFIG.get("printer_token")),
         "has_host": bool(CONFIG.get("printer_host")),
     }
@@ -778,6 +830,31 @@ def setup_discover(_: None = Depends(_admin_required_when_setup)) -> dict:
 @app.post("/api/setup/complete")
 def setup_complete(payload: SetupPayload,
                    _: None = Depends(_admin_required_when_setup)) -> dict:
+    # Create the first user in the auth sidecar BEFORE persisting setup state,
+    # so a sidecar failure doesn't leave the deploy half-configured.
+    try:
+        r = requests.post(
+            f"{AUTH_INTERNAL_URL}/__auth/bootstrap-admin",
+            json={
+                "email": payload.admin_email.strip(),
+                "password": payload.admin_password,
+                "name": (payload.admin_name or payload.admin_email).strip(),
+            },
+            timeout=10,
+        )
+    except requests.RequestException as exc:
+        raise HTTPException(status_code=503,
+                            detail=f"auth service unreachable: {exc}") from exc
+    if r.status_code == 409:
+        raise HTTPException(status_code=409,
+                            detail="an admin user already exists")
+    if r.status_code != 200:
+        try:
+            detail = r.json().get("error", r.text)
+        except Exception:
+            detail = r.text
+        raise HTTPException(status_code=400, detail=f"signup failed: {detail}")
+
     with CONFIG_LOCK:
         CONFIG["printer_host"] = payload.printer_host.strip()
         CONFIG["printer_port"] = int(payload.printer_port)
@@ -786,18 +863,16 @@ def setup_complete(payload: SetupPayload,
         CONFIG["printer_timeout"] = max(1, int(payload.printer_timeout))
         CONFIG["printer_retries"] = max(1, int(payload.printer_retries))
         CONFIG["tz"] = payload.tz.strip() or "Europe/Paris"
-        # The first user (created here by the setup wizard) is the admin.
-        CONFIG["admin_username"] = payload.admin_username.strip() or "admin"
-        CONFIG["admin_role"] = "admin"
         CONFIG["setup_completed"] = True
         _save_persisted_config()
-    log("setup.completed", host=CONFIG["printer_host"], port=CONFIG["printer_port"],
-        admin_username=CONFIG["admin_username"])
+    log("setup.completed",
+        host=CONFIG["printer_host"], port=CONFIG["printer_port"],
+        admin_email=payload.admin_email.strip())
     return {"status": "ok", "config": _public_config()}
 
 
 @app.get("/api/me")
-def get_me(user: dict = Depends(require_auth)) -> dict:
+def get_me(user: dict = Depends(require_session)) -> dict:
     return user
 
 
@@ -823,7 +898,7 @@ def update_config(payload: ConfigUpdate, _: dict = Depends(require_admin)) -> di
 
 @app.get("/api/jobs")
 def list_jobs(limit: int = 100, status: Optional[str] = None,
-              _: None = Depends(require_auth)) -> dict:
+              _: dict = Depends(require_admin)) -> dict:
     limit = max(1, min(int(limit), 500))
     query = "SELECT id, ts, job_type, status, duration_ms, attempts, error, source, payload_summary FROM jobs"
     params: list[Any] = []
@@ -912,6 +987,46 @@ def analytics_timeseries(hours: int = 24,
         })
         bucket += bucket_seconds
     return {"series": series, "bucket_seconds": bucket_seconds}
+
+
+# --------------------------------------------------------------------------
+# Reverse proxy: /api/auth/* -> better-auth sidecar
+# --------------------------------------------------------------------------
+# Better-auth runs as a sibling Node process inside the container so the
+# browser sees a single origin. httpx (not requests) is used because it
+# preserves multiple Set-Cookie headers — important for sign-in responses.
+_PROXY_STRIP_REQ_HEADERS = {"host", "content-length"}
+_PROXY_STRIP_RES_HEADERS = {"content-encoding", "transfer-encoding",
+                            "connection", "keep-alive"}
+
+
+@app.api_route("/api/auth/{path:path}",
+               methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
+async def auth_proxy(path: str, request: Request) -> Response:
+    headers = [(k, v) for k, v in request.headers.raw
+               if k.lower().decode() not in _PROXY_STRIP_REQ_HEADERS]
+    body = await request.body()
+    url = f"{AUTH_INTERNAL_URL}/api/auth/{path}"
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        try:
+            r = await client.request(
+                request.method, url,
+                params=dict(request.query_params),
+                content=body,
+                headers={k.decode(): v.decode() for k, v in headers},
+            )
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=503,
+                                detail=f"auth service unreachable: {exc}") from exc
+    response = Response(content=r.content, status_code=r.status_code)
+    # Preserve multiple Set-Cookie headers (Response()'s dict init would
+    # collapse them). We bypass the init by replacing raw_headers wholesale.
+    response.raw_headers = [
+        (k.encode(), v.encode())
+        for k, v in r.headers.multi_items()
+        if k.lower() not in _PROXY_STRIP_RES_HEADERS
+    ]
+    return response
 
 
 # --------------------------------------------------------------------------

@@ -14,7 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { endpoints, getToken, HealthResponse } from "@/lib/api";
+import { endpoints, HealthResponse } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
 type NavItem = {
@@ -36,12 +36,13 @@ const nav: NavItem[] = [
 export function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { me, signOut } = useAuth();
+  const { me, loading: authLoading, signOut } = useAuth();
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const visibleNav = nav.filter((item) => !item.adminOnly || me?.role === "admin");
 
   useEffect(() => {
-    if (!getToken()) {
+    if (authLoading) return;
+    if (!me) {
       navigate("/login", { replace: true });
       return;
     }
@@ -57,7 +58,7 @@ export function Layout() {
       cancelled = true;
       clearInterval(id);
     };
-  }, [navigate, location.pathname]);
+  }, [navigate, location.pathname, authLoading, me]);
 
   return (
     <div className="flex min-h-screen bg-muted/30">
@@ -91,13 +92,13 @@ export function Layout() {
             variant="ghost"
             size="sm"
             className="w-full justify-start"
-            onClick={() => {
-              signOut();
+            onClick={async () => {
+              await signOut();
               navigate("/login", { replace: true });
             }}
           >
             <LogOut className="mr-2 h-4 w-4" />
-            {me ? `Sign out (${me.username})` : "Sign out"}
+            {me ? `Sign out (${me.email})` : "Sign out"}
           </Button>
         </div>
       </aside>

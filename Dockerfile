@@ -9,11 +9,40 @@ COPY frontend/ ./
 RUN npm run build
 
 # --------------------------------------------------------------------------
-# Runtime stage
+# Auth sidecar build stage (better-auth + Express)
+# --------------------------------------------------------------------------
+FROM node:20-alpine AS auth-build
+WORKDIR /build
+RUN apk add --no-cache python3 make g++
+COPY auth/package.json auth/package-lock.json* ./
+RUN npm ci || npm install
+COPY auth/tsconfig.json ./
+COPY auth/src ./src
+RUN npm run build
+
+# --------------------------------------------------------------------------
+# Auth sidecar runtime deps (smaller, no dev deps)
+# --------------------------------------------------------------------------
+FROM node:20-alpine AS auth-deps
+WORKDIR /build
+RUN apk add --no-cache python3 make g++
+COPY auth/package.json auth/package-lock.json* ./
+RUN npm ci --omit=dev || npm install --omit=dev
+
+# --------------------------------------------------------------------------
+# Runtime stage: Python (FastAPI + printer) + Node (better-auth sidecar)
 # --------------------------------------------------------------------------
 FROM python:3.12-slim
 
 WORKDIR /app
+
+# Bring in a working Node runtime. python:3.12-slim is debian-based, so we use
+# nodejs from apt (current LTS at time of writing).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates gnupg \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
@@ -21,6 +50,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app.py .
 COPY discovery.py .
 COPY --from=frontend /build/dist ./frontend/dist
+COPY --from=auth-build /build/dist ./auth/dist
+COPY --from=auth-deps /build/node_modules ./auth/node_modules
+COPY auth/package.json ./auth/package.json
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
 
 RUN useradd --create-home --uid 10001 appuser \
     && mkdir -p /app/data \
@@ -30,4 +64,9 @@ USER appuser
 EXPOSE 8080
 VOLUME ["/app/data"]
 
-CMD ["python", "-u", "app.py"]
+ENV PRINTCAST_AUTH_URL=http://127.0.0.1:8090 \
+    AUTH_BASE_URL=http://127.0.0.1:8090 \
+    AUTH_PORT=8090 \
+    AUTH_HOST=127.0.0.1
+
+CMD ["/usr/local/bin/entrypoint.sh"]
