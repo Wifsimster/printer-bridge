@@ -1,6 +1,8 @@
 import { FormEvent, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ClipboardCopy,
+  Globe,
   Loader2,
   RefreshCw,
   Save,
@@ -20,9 +22,11 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { ApiError, ConfigResponse, endpoints, setToken } from "@/lib/api";
+import { ApiError, ConfigResponse, endpoints } from "@/lib/api";
+import { SUPPORTED_LANGUAGES } from "@/i18n";
 
 export function Settings() {
+  const { t, i18n } = useTranslation();
   const [config, setConfig] = useState<ConfigResponse | null>(null);
   const [form, setForm] = useState<Partial<ConfigResponse>>({});
   const [token, setNewToken] = useState("");
@@ -36,7 +40,8 @@ export function Settings() {
         setConfig(c);
         setForm(c);
       })
-      .catch(() => toast.error("Could not load configuration"));
+      .catch(() => toast.error(t("settings.loadConfigFailed")));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function save(e: FormEvent) {
@@ -50,9 +55,9 @@ export function Settings() {
       const result = await endpoints.updateConfig(payload);
       setConfig(result.config);
       setForm(result.config);
-      toast.success("Configuration saved");
+      toast.success(t("settings.configSaved"));
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Save failed");
+      toast.error(err instanceof ApiError ? err.message : t("settings.saveFailed"));
     } finally {
       setBusy(false);
     }
@@ -62,26 +67,25 @@ export function Settings() {
     try {
       const { token } = await endpoints.generateToken();
       setNewToken(token);
-      toast.success("New token generated — save below to apply");
+      toast.success(t("settings.newTokenGenerated"));
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Failed");
+      toast.error(err instanceof ApiError ? err.message : t("settings.failed"));
     }
   }
 
   async function applyToken() {
     if (token.length < 24) {
-      toast.error("Token must be at least 24 characters");
+      toast.error(t("settings.tokenMinLength"));
       return;
     }
     setBusy(true);
     try {
       const result = await endpoints.updateConfig({ printer_token: token });
       setConfig(result.config);
-      setToken(token);
       setNewToken("");
-      toast.success("Token rotated — using new credentials");
+      toast.success(t("settings.tokenRotated"));
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Failed");
+      toast.error(err instanceof ApiError ? err.message : t("settings.failed"));
     } finally {
       setBusy(false);
     }
@@ -96,44 +100,38 @@ export function Settings() {
         Number(form.printer_port)
       );
       toast[result.reachable ? "success" : "warning"](
-        result.reachable ? "Printer is reachable" : "Printer is unreachable"
+        result.reachable ? t("settings.printerReachable") : t("settings.printerUnreachable")
       );
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Failed");
+      toast.error(err instanceof ApiError ? err.message : t("settings.failed"));
     } finally {
       setTesting(false);
     }
   }
 
   if (!config) {
-    return <div className="text-sm text-muted-foreground">Loading…</div>;
+    return <div className="text-sm text-muted-foreground">{t("common.loading")}</div>;
   }
+
+  const currentLang = (i18n.resolvedLanguage || i18n.language || "en").split("-")[0];
 
   return (
     <div className="space-y-6">
       <header>
-        <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-          Configuration
-        </p>
-        <h1 className="mt-1 text-3xl font-semibold tracking-tight">Settings</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Live configuration — persisted to /app/data/config.json. Takes effect
-          on the next print job, no restart required.
-        </p>
+        <h1 className="text-2xl font-semibold tracking-tight">{t("settings.title")}</h1>
+        <p className="text-sm text-muted-foreground">{t("settings.description")}</p>
       </header>
 
       <Card>
         <CardHeader>
-          <CardTitle>Printer</CardTitle>
-          <CardDescription>
-            Network address and ESC/POS connection tuning.
-          </CardDescription>
+          <CardTitle>{t("settings.printerCardTitle")}</CardTitle>
+          <CardDescription>{t("settings.printerCardDesc")}</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={save} className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-[2fr,1fr]">
               <div className="space-y-2">
-                <Label htmlFor="host">Printer host</Label>
+                <Label htmlFor="host">{t("settings.host")}</Label>
                 <Input
                   id="host"
                   value={form.printer_host ?? ""}
@@ -141,7 +139,7 @@ export function Settings() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="port">Port</Label>
+                <Label htmlFor="port">{t("settings.port")}</Label>
                 <Input
                   id="port"
                   type="number"
@@ -154,7 +152,7 @@ export function Settings() {
             </div>
             <div className="grid gap-4 sm:grid-cols-3">
               <div className="space-y-2">
-                <Label htmlFor="codepage">Codepage</Label>
+                <Label htmlFor="codepage">{t("settings.codepage")}</Label>
                 <Input
                   id="codepage"
                   value={form.printer_codepage ?? ""}
@@ -164,7 +162,7 @@ export function Settings() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="timeout">Timeout (s)</Label>
+                <Label htmlFor="timeout">{t("settings.timeout")}</Label>
                 <Input
                   id="timeout"
                   type="number"
@@ -175,7 +173,7 @@ export function Settings() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="retries">Retries</Label>
+                <Label htmlFor="retries">{t("settings.retries")}</Label>
                 <Input
                   id="retries"
                   type="number"
@@ -187,7 +185,7 @@ export function Settings() {
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="tz">Timezone</Label>
+              <Label htmlFor="tz">{t("settings.timezone")}</Label>
               <Input
                 id="tz"
                 value={form.tz ?? ""}
@@ -201,7 +199,7 @@ export function Settings() {
                 ) : (
                   <Save className="mr-2 h-4 w-4" />
                 )}
-                Save changes
+                {t("common.save")}
               </Button>
               <Button
                 type="button"
@@ -214,7 +212,7 @@ export function Settings() {
                 ) : (
                   <TestTube2 className="mr-2 h-4 w-4" />
                 )}
-                Test connection
+                {t("settings.testConnection")}
               </Button>
             </div>
           </form>
@@ -223,25 +221,51 @@ export function Settings() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Bearer token</CardTitle>
-          <CardDescription>
-            Rotate the secret used by callers. The dashboard credential is
-            updated automatically on rotation.
-          </CardDescription>
+          <CardTitle className="flex items-center gap-2">
+            <Globe className="h-4 w-4" />
+            {t("settings.languageCardTitle")}
+          </CardTitle>
+          <CardDescription>{t("settings.languageCardDesc")}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="max-w-xs">
+            <Label htmlFor="lang" className="sr-only">
+              {t("common.language")}
+            </Label>
+            <select
+              id="lang"
+              value={currentLang}
+              onChange={(e) => i18n.changeLanguage(e.target.value)}
+              className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+            >
+              {SUPPORTED_LANGUAGES.map((lng) => (
+                <option key={lng} value={lng}>
+                  {t(`languages.${lng}`)}
+                </option>
+              ))}
+            </select>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("settings.tokenCardTitle")}</CardTitle>
+          <CardDescription>{t("settings.tokenCardDesc")}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between rounded-md border bg-muted/30 p-3">
             <div className="text-sm">
-              <span className="text-muted-foreground">Current: </span>
-              <span className="font-mono">{config.token_preview || "—"}</span>
+              <span className="text-muted-foreground">{t("settings.current")}</span>
+              <span className="font-mono">{config.token_preview || t("common.dash")}</span>
             </div>
             <Badge variant={config.token_set ? "success" : "destructive"}>
-              {config.token_set ? "configured" : "missing"}
+              {config.token_set ? t("settings.configured") : t("settings.missing")}
             </Badge>
           </div>
           {token && (
             <Alert>
-              <AlertTitle>New token generated</AlertTitle>
+              <AlertTitle>{t("settings.newTokenTitle")}</AlertTitle>
               <AlertDescription className="font-mono text-xs break-all">
                 {token}
               </AlertDescription>
@@ -250,7 +274,7 @@ export function Settings() {
           <Separator />
           <div className="flex gap-2">
             <Button variant="outline" onClick={rotate} disabled={busy}>
-              <RefreshCw className="mr-2 h-4 w-4" /> Generate new token
+              <RefreshCw className="mr-2 h-4 w-4" /> {t("settings.generateNew")}
             </Button>
             {token && (
               <>
@@ -258,13 +282,13 @@ export function Settings() {
                   variant="outline"
                   onClick={() => {
                     navigator.clipboard.writeText(token);
-                    toast.success("Copied");
+                    toast.success(t("common.copied"));
                   }}
                 >
-                  <ClipboardCopy className="mr-2 h-4 w-4" /> Copy
+                  <ClipboardCopy className="mr-2 h-4 w-4" /> {t("common.copy")}
                 </Button>
                 <Button onClick={applyToken} disabled={busy}>
-                  Apply token
+                  {t("settings.applyToken")}
                 </Button>
               </>
             )}

@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import {
   Activity,
   BarChart3,
+  Brush,
+  Home,
   LayoutDashboard,
   ListChecks,
   LogOut,
@@ -12,25 +15,41 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { AppFooter } from "@/components/AppFooter";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { cn } from "@/lib/utils";
-import { clearToken, endpoints, getToken, HealthResponse } from "@/lib/api";
+import { endpoints, HealthResponse } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
-const nav = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/analytics", label: "Analytics", icon: BarChart3 },
-  { to: "/jobs", label: "Jobs", icon: ListChecks },
-  { to: "/test", label: "Test print", icon: TestTube2 },
-  { to: "/settings", label: "Settings", icon: SettingsIcon },
-];
+type NavItem = {
+  to: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  end?: boolean;
+  adminOnly?: boolean;
+};
 
 export function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { t } = useTranslation();
+  const { me, loading: authLoading, signOut } = useAuth();
   const [health, setHealth] = useState<HealthResponse | null>(null);
 
+  const nav: NavItem[] = [
+    { to: "/admin", label: t("nav.dashboard"), icon: LayoutDashboard, end: true },
+    { to: "/admin/analytics", label: t("nav.analytics"), icon: BarChart3, adminOnly: true },
+    { to: "/admin/jobs", label: t("nav.jobs"), icon: ListChecks },
+    { to: "/admin/draw", label: t("nav.draw"), icon: Brush },
+    { to: "/admin/test", label: t("nav.testPrint"), icon: TestTube2, adminOnly: true },
+    { to: "/admin/settings", label: t("nav.settings"), icon: SettingsIcon, adminOnly: true },
+  ];
+  const visibleNav = nav.filter((item) => !item.adminOnly || me?.role === "admin");
+
   useEffect(() => {
-    if (!getToken()) {
+    if (authLoading) return;
+    if (!me) {
       navigate("/login", { replace: true });
       return;
     }
@@ -46,7 +65,7 @@ export function Layout() {
       cancelled = true;
       clearInterval(id);
     };
-  }, [navigate, location.pathname]);
+  }, [navigate, location.pathname, authLoading, me]);
 
   return (
     <div className="app-shell-bg flex min-h-screen">
@@ -63,11 +82,11 @@ export function Layout() {
           </div>
         </div>
         <nav className="flex-1 space-y-1 px-3 py-4">
-          {nav.map((item) => (
+          {visibleNav.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
-              end={item.to === "/"}
+              end={item.end}
               className={({ isActive }) =>
                 cn(
                   "group relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all",
@@ -94,18 +113,38 @@ export function Layout() {
             </NavLink>
           ))}
         </nav>
-        <div className="border-t border-border/60 p-3">
+        <div className="space-y-2 border-t border-border/60 p-3">
+          {me ? (
+            <div
+              className="truncate rounded-lg border border-border/60 bg-background/50 px-3 py-2 text-xs text-muted-foreground"
+              title={me.email}
+            >
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground/80">
+                {me.role === "admin" ? "admin" : "user"}
+              </div>
+              <div className="truncate text-foreground">{me.email}</div>
+            </div>
+          ) : null}
           <PrinterStatusCard health={health} />
+          <LanguageSwitcher className="w-full" />
           <Button
             variant="ghost"
             size="sm"
-            className="mt-2 w-full justify-start text-muted-foreground hover:text-foreground"
-            onClick={() => {
-              clearToken();
-              navigate("/login", { replace: true });
+            className="w-full justify-start text-muted-foreground hover:text-foreground"
+            onClick={() => navigate("/")}
+          >
+            <Home className="mr-2 h-4 w-4" /> {t("nav.publicPage")}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full justify-start text-muted-foreground hover:text-foreground"
+            onClick={async () => {
+              await signOut();
+              navigate("/", { replace: true });
             }}
           >
-            <LogOut className="mr-2 h-4 w-4" /> Sign out
+            <LogOut className="mr-2 h-4 w-4" /> {t("common.signOut")}
           </Button>
         </div>
       </aside>
@@ -121,33 +160,36 @@ export function Layout() {
             </div>
             <div className="hidden items-center gap-2 rounded-full border border-border/60 bg-background/60 px-3 py-1.5 text-xs md:flex">
               <Activity className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="text-muted-foreground">Printer</span>
+              <span className="text-muted-foreground">{t("header.printer")}</span>
               <span className="font-mono text-foreground">
-                {health?.printer?.host || "unknown"}:{health?.printer?.port || "—"}
+                {health?.printer?.host || t("header.unknown")}:
+                {health?.printer?.port || t("common.dash")}
               </span>
               {health ? (
                 health.printer.reachable ? (
                   <Badge variant="success" className="ml-1">
                     <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-current" />
-                    online
+                    {t("header.reachable")}
                   </Badge>
                 ) : (
                   <Badge variant="destructive" className="ml-1">
-                    offline
+                    {t("header.unreachable")}
                   </Badge>
                 )
               ) : (
-                <Badge variant="outline" className="ml-1">…</Badge>
+                <Badge variant="outline" className="ml-1">
+                  …
+                </Badge>
               )}
             </div>
           </div>
           <div className="flex items-center gap-2">
             <nav className="flex gap-1 md:hidden">
-              {nav.map((item) => (
+              {visibleNav.map((item) => (
                 <NavLink
                   key={item.to}
                   to={item.to}
-                  end={item.to === "/"}
+                  end={item.end}
                   className={({ isActive }) =>
                     cn(
                       "rounded-md p-2 transition-colors",
@@ -169,6 +211,7 @@ export function Layout() {
             <Outlet />
           </div>
         </main>
+        <AppFooter />
       </div>
     </div>
   );

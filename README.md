@@ -76,11 +76,24 @@ The same container that serves the API also serves the bundled React UI on
 | `/analytics`   | Throughput charts, success rate, type breakdown.       |
 | `/jobs`        | Last 200 jobs with status, duration, source.           |
 | `/test`        | Compose ad-hoc text/receipt prints from the browser.   |
-| `/settings`    | Edit printer config and rotate the bearer token.       |
+| `/draw`        | Finger-paint a dessert on mobile and print it.         |
+| `/settings`    | Edit printer config and rotate the webhook token.      |
 
-After setup, the dashboard requires the bearer token (the same one the
-`/print*` endpoints accept) — paste it at `/login`. The token is stored in
-`localStorage` and sent as `Authorization: Bearer …`.
+Authentication is split in two:
+- **The web UI** uses email/password through a [better-auth](https://better-auth.com)
+  sidecar. The first user created via the setup wizard becomes the `admin`
+  and is the only one who can reach `/settings`, `/analytics`, and `/test`.
+  Sessions live in an HTTP-only cookie; no `localStorage`.
+- **Webhook callers** (`/print/text`, `/print/receipt`, `/print/image`,
+  `/print`) keep using the shared bearer token from the setup wizard — so
+  existing n8n / Home Assistant / ntfy / curl integrations don't break.
+
+Required env vars when deploying:
+
+| variable                | what it does                                                                |
+|-------------------------|-----------------------------------------------------------------------------|
+| `AUTH_SECRET`           | 32+ byte random string used to sign better-auth session cookies.            |
+| `AUTH_TRUSTED_ORIGINS`  | Comma-separated list of public URLs (e.g. `https://printcast.example.com`). |
 
 ### Frontend dev loop
 
