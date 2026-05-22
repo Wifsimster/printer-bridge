@@ -2,10 +2,11 @@
 # Frontend build stage
 # --------------------------------------------------------------------------
 FROM node:20-alpine AS frontend
-WORKDIR /build
+WORKDIR /build/frontend
 COPY frontend/package.json frontend/package-lock.json* ./
 RUN npm ci || npm install
 COPY frontend/ ./
+COPY VERSION /build/VERSION
 RUN npm run build
 
 # --------------------------------------------------------------------------
@@ -60,7 +61,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app.py .
 COPY discovery.py .
-COPY --from=frontend /build/dist ./frontend/dist
+COPY --from=frontend /build/frontend/dist ./frontend/dist
 COPY --from=auth-build /build/dist ./auth/dist
 COPY --from=auth-deps /build/node_modules ./auth/node_modules
 COPY auth/package.json ./auth/package.json
