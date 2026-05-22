@@ -9,6 +9,7 @@ import {
   Loader2,
   PartyPopper,
   Printer,
+  Radar,
   RefreshCw,
   TestTube2,
   Wifi,
@@ -30,7 +31,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
-import { ApiError, endpoints, setToken } from "@/lib/api";
+import { ApiError, endpoints, setToken, type PrinterCandidate } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 type Step = 0 | 1 | 2 | 3 | 4;
@@ -194,7 +195,33 @@ function PrinterStep({
   onNext: () => void;
   onBack: () => void;
 }) {
+  const [scanning, setScanning] = useState(false);
+  const [candidates, setCandidates] = useState<PrinterCandidate[] | null>(null);
   const valid = form.printer_host.trim() && form.printer_port > 0;
+
+  async function scan() {
+    setScanning(true);
+    try {
+      const result = await endpoints.discoverPrinters();
+      setCandidates(result.candidates);
+      if (result.candidates.length === 0) {
+        toast.warning("No printers found on the local network");
+      } else {
+        toast.success(`Found ${result.candidates.length} candidate(s)`);
+      }
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Scan failed");
+    } finally {
+      setScanning(false);
+    }
+  }
+
+  function pick(c: PrinterCandidate) {
+    update("printer_host", c.host);
+    update("printer_port", c.port);
+    toast.success(`Selected ${c.host}:${c.port}`);
+  }
+
   return (
     <>
       <CardHeader>
@@ -205,6 +232,58 @@ function PrinterStep({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        <div className="rounded-lg border bg-muted/30 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="space-y-0.5">
+              <p className="text-sm font-medium">Auto-discover on LAN</p>
+              <p className="text-xs text-muted-foreground">
+                mDNS browse + parallel TCP probe of the local /24 on port 9100.
+              </p>
+            </div>
+            <Button variant="outline" onClick={scan} disabled={scanning}>
+              {scanning ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Radar className="mr-2 h-4 w-4" />
+              )}
+              Scan network
+            </Button>
+          </div>
+          {candidates && candidates.length > 0 && (
+            <ul className="mt-3 space-y-2">
+              {candidates.map((c) => (
+                <li
+                  key={`${c.host}:${c.port}`}
+                  className="flex items-center justify-between gap-3 rounded-md border bg-background p-2"
+                >
+                  <div className="min-w-0 space-y-0.5">
+                    <p className="truncate font-mono text-sm">
+                      {c.host}:{c.port}
+                    </p>
+                    <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                      {c.name && <span className="truncate">{c.name}</span>}
+                      <Badge variant="outline" className="text-[10px]">
+                        {c.method}
+                      </Badge>
+                      {c.reachable ? (
+                        <Badge variant="success" className="text-[10px]">
+                          <Wifi className="mr-1 h-2.5 w-2.5" /> reachable
+                        </Badge>
+                      ) : (
+                        <Badge variant="destructive" className="text-[10px]">
+                          <WifiOff className="mr-1 h-2.5 w-2.5" /> unreachable
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                  <Button size="sm" variant="secondary" onClick={() => pick(c)}>
+                    Use
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
         <div className="grid gap-4 sm:grid-cols-[2fr,1fr]">
           <div className="space-y-2">
             <Label htmlFor="host">Printer host</Label>

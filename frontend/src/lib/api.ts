@@ -113,6 +113,15 @@ export type TimeseriesResponse = {
   bucket_seconds: number;
 };
 
+export type PrinterCandidate = {
+  host: string;
+  port: number;
+  name?: string;
+  service?: string;
+  method: "mdns" | "scan";
+  reachable: boolean;
+};
+
 export const endpoints = {
   setupStatus: () => api<SetupStatus>("/api/setup/status", { auth: false }),
   generateToken: () =>
@@ -121,6 +130,11 @@ export const endpoints = {
     api<{ reachable: boolean; host: string; port: number }>(
       "/api/setup/test-connection",
       { method: "POST", body: JSON.stringify({ printer_host, printer_port }) }
+    ),
+  discoverPrinters: () =>
+    api<{ port: number; candidates: PrinterCandidate[] }>(
+      "/api/setup/discover",
+      { method: "POST" }
     ),
   completeSetup: (payload: Record<string, unknown>) =>
     api<{ status: string; config: ConfigResponse }>("/api/setup/complete", {

@@ -749,6 +749,16 @@ def test_connection(payload: TestConnectionPayload,
     return {"reachable": reachable, "host": payload.printer_host, "port": payload.printer_port}
 
 
+@app.post("/api/setup/discover")
+def setup_discover(_: None = Depends(_admin_required_when_setup)) -> dict:
+    """Run printer auto-discovery during first-run setup (no token required)."""
+    port = int(CONFIG.get("printer_port") or 9100)
+    candidates = discover_printers(port=port, mdns_timeout=3.0, scan_timeout=0.4)
+    for c in candidates:
+        c["reachable"] = tcp_reachable(c["host"], c["port"], timeout=1.5)
+    return {"port": port, "candidates": candidates}
+
+
 @app.post("/api/setup/complete")
 def setup_complete(payload: SetupPayload,
                    _: None = Depends(_admin_required_when_setup)) -> dict:
