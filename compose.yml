@@ -2,8 +2,7 @@ name: printcast
 
 services:
   printcast:
-    # image: ghcr.io/wifsimster/printcast:latest   # re-enable once the release pipeline publishes the first tag
-    build: .
+    image: ghcr.io/wifsimster/printcast:latest
     container_name: printcast
     restart: unless-stopped
     env_file: .env
