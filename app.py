@@ -928,8 +928,13 @@ def main() -> None:
     uvicorn.run(app, host="0.0.0.0", port=8080, log_level="info")
 
 
-# Initialize for module-level import (uvicorn `app:app`).
-_init_db()
+# Initialize for module-level import (uvicorn `app:app`). Wrapped so a
+# read-only or missing data dir at import time (e.g. CI smoke tests) does
+# not crash the module — main() retries and surfaces real failures.
+try:
+    _init_db()
+except OSError as _exc:
+    log("db.init.deferred", level=logging.WARNING, error=str(_exc))
 _mount_frontend()
 
 

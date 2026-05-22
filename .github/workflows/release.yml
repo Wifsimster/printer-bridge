@@ -111,6 +111,8 @@ jobs:
         env:
           PRINTER_HOST: "127.0.0.1"
           PRINTER_TOKEN: "ci-test-token"
+          PRINTCAST_DATA_DIR: ${{ runner.temp }}/printcast-data
+          PRINTER_AUTODETECT: "false"
         run: python -c "import app; assert app.SERVICE_NAME == 'printcast'"
 
   release:
