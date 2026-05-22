@@ -149,6 +149,13 @@ export const endpoints = {
     api<{ status: string }>("/print/text", {
       method: "POST",
       body: JSON.stringify(payload),
+      auth: false,
+    }),
+  printImage: (payload: Record<string, unknown>) =>
+    api<{ status: string }>("/print/image", {
+      method: "POST",
+      body: JSON.stringify(payload),
+      auth: false,
     }),
   printReceipt: (payload: Record<string, unknown>) =>
     api<{ status: string }>("/print/receipt", {

@@ -27,7 +27,7 @@ export function Login() {
     try {
       await endpoints.config();
       toast.success("Signed in");
-      navigate("/", { replace: true });
+      navigate("/admin", { replace: true });
     } catch {
       setToken("");
       toast.error("Invalid token");

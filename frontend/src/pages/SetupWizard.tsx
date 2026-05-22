@@ -87,7 +87,7 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
       setToken(form.printer_token);
       toast.success("Setup complete");
       onComplete();
-      navigate("/", { replace: true });
+      navigate("/admin", { replace: true });
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : "Setup failed";
       toast.error(msg);

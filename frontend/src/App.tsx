@@ -10,6 +10,7 @@ import { Settings } from "@/pages/Settings";
 import { TestPrint } from "@/pages/TestPrint";
 import { Login } from "@/pages/Login";
 import { SetupWizard } from "@/pages/SetupWizard";
+import { Public } from "@/pages/Public";
 
 export default function App() {
   const [status, setStatus] = useState<SetupStatus | null>(null);
@@ -42,13 +43,14 @@ export default function App() {
 
   return (
     <Routes>
+      <Route path="/" element={<Public />} />
       <Route path="/login" element={<Login />} />
-      <Route element={<Layout />}>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/analytics" element={<Analytics />} />
-        <Route path="/jobs" element={<Jobs />} />
-        <Route path="/test" element={<TestPrint />} />
-        <Route path="/settings" element={<Settings />} />
+      <Route path="/admin" element={<Layout />}>
+        <Route index element={<Dashboard />} />
+        <Route path="analytics" element={<Analytics />} />
+        <Route path="jobs" element={<Jobs />} />
+        <Route path="test" element={<TestPrint />} />
+        <Route path="settings" element={<Settings />} />
       </Route>
       <Route path="*" element={<RedirectHome />} />
     </Routes>

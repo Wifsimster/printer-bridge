@@ -651,8 +651,7 @@ def metrics() -> PlainTextResponse:
 # Print endpoints
 # --------------------------------------------------------------------------
 @app.post("/print/text")
-def print_text(job: TextJob, request: Request,
-               _: None = Depends(require_auth)) -> dict:
+def print_text(job: TextJob, request: Request) -> dict:
     run_print_job("text", lambda p: render_text(p, job),
                   source=_request_source(request),
                   summary=_summarize_payload(job))
@@ -669,8 +668,7 @@ def print_receipt(job: ReceiptJob, request: Request,
 
 
 @app.post("/print/image")
-def print_image(job: ImageJob, request: Request,
-                _: None = Depends(require_auth)) -> dict:
+def print_image(job: ImageJob, request: Request) -> dict:
     try:
         img = load_image(job.image)
     except Exception as exc:

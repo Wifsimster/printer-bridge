@@ -178,16 +178,16 @@ export function Dashboard() {
           </CardHeader>
           <CardContent className="space-y-2">
             <Button variant="outline" className="w-full justify-start" asChild>
-              <Link to="/test">Send a custom print</Link>
+              <Link to="/admin/test">Send a custom print</Link>
             </Button>
             <Button variant="outline" className="w-full justify-start" asChild>
-              <Link to="/analytics">Open analytics</Link>
+              <Link to="/admin/analytics">Open analytics</Link>
             </Button>
             <Button variant="outline" className="w-full justify-start" asChild>
-              <Link to="/jobs">Inspect job history</Link>
+              <Link to="/admin/jobs">Inspect job history</Link>
             </Button>
             <Button variant="outline" className="w-full justify-start" asChild>
-              <Link to="/settings">Edit configuration</Link>
+              <Link to="/admin/settings">Edit configuration</Link>
             </Button>
           </CardContent>
         </Card>

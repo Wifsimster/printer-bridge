@@ -16,11 +16,11 @@ import { cn } from "@/lib/utils";
 import { clearToken, endpoints, getToken, HealthResponse } from "@/lib/api";
 
 const nav = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/analytics", label: "Analytics", icon: BarChart3 },
-  { to: "/jobs", label: "Jobs", icon: ListChecks },
-  { to: "/test", label: "Test print", icon: TestTube2 },
-  { to: "/settings", label: "Settings", icon: SettingsIcon },
+  { to: "/admin", label: "Dashboard", icon: LayoutDashboard, end: true },
+  { to: "/admin/analytics", label: "Analytics", icon: BarChart3, end: false },
+  { to: "/admin/jobs", label: "Jobs", icon: ListChecks, end: false },
+  { to: "/admin/test", label: "Test print", icon: TestTube2, end: false },
+  { to: "/admin/settings", label: "Settings", icon: SettingsIcon, end: false },
 ];
 
 export function Layout() {
@@ -59,7 +59,7 @@ export function Layout() {
             <NavLink
               key={item.to}
               to={item.to}
-              end={item.to === "/"}
+              end={item.end}
               className={({ isActive }) =>
                 cn(
                   "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
@@ -81,7 +81,7 @@ export function Layout() {
             className="w-full justify-start"
             onClick={() => {
               clearToken();
-              navigate("/login", { replace: true });
+              navigate("/", { replace: true });
             }}
           >
             <LogOut className="mr-2 h-4 w-4" /> Sign out
@@ -112,7 +112,7 @@ export function Layout() {
               <NavLink
                 key={item.to}
                 to={item.to}
-                end={item.to === "/"}
+                end={item.end}
                 className={({ isActive }) =>
                   cn(
                     "rounded-md p-2",
