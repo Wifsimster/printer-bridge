@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Loader2, Printer, Send } from "lucide-react";
+import { Loader2, Network, Printer, Send } from "lucide-react";
 import { toast } from "sonner";
 import {
   Card,
@@ -36,12 +36,16 @@ export function TestPrint() {
           <CardDescription>{t("testPrint.composerDesc")}</CardDescription>
         </CardHeader>
         <CardContent>
-          <Tabs defaultValue="quick">
+          <Tabs defaultValue="selftest">
             <TabsList>
+              <TabsTrigger value="selftest">{t("testPrint.tabSelfTest")}</TabsTrigger>
               <TabsTrigger value="quick">{t("testPrint.tabQuick")}</TabsTrigger>
               <TabsTrigger value="text">{t("testPrint.tabText")}</TabsTrigger>
               <TabsTrigger value="receipt">{t("testPrint.tabReceipt")}</TabsTrigger>
             </TabsList>
+            <TabsContent value="selftest" className="mt-6">
+              <SelfTest />
+            </TabsContent>
             <TabsContent value="quick" className="mt-6">
               <QuickTest />
             </TabsContent>
@@ -54,6 +58,35 @@ export function TestPrint() {
           </Tabs>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function SelfTest() {
+  const { t } = useTranslation();
+  const [busy, setBusy] = useState(false);
+  async function run() {
+    setBusy(true);
+    try {
+      await endpoints.printSelfTest();
+      toast.success(t("testPrint.selfTestSent"));
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : t("testPrint.failed"));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-muted-foreground">{t("testPrint.selfTestDesc")}</p>
+      <Button onClick={run} disabled={busy}>
+        {busy ? (
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+        ) : (
+          <Network className="mr-2 h-4 w-4" />
+        )}
+        {t("testPrint.runSelfTest")}
+      </Button>
     </div>
   );
 }
