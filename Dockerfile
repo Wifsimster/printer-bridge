@@ -10,10 +10,17 @@ RUN npm run build
 
 # --------------------------------------------------------------------------
 # Auth sidecar build stage (better-auth + Express)
+#
+# Must be glibc-based (node:20-slim, not node:20-alpine) so better-sqlite3's
+# native binding is compiled against the same libc as the python:3.12-slim
+# runtime stage below. Mixing musl (alpine) build with glibc (debian) runtime
+# causes ERR_DLOPEN_FAILED on startup (libc.musl-x86_64.so.1: not found).
 # --------------------------------------------------------------------------
-FROM node:20-alpine AS auth-build
+FROM node:20-slim AS auth-build
 WORKDIR /build
-RUN apk add --no-cache python3 make g++
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 make g++ \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 COPY auth/package.json auth/package-lock.json* ./
 RUN npm ci || npm install
 COPY auth/tsconfig.json ./
@@ -22,10 +29,14 @@ RUN npm run build
 
 # --------------------------------------------------------------------------
 # Auth sidecar runtime deps (smaller, no dev deps)
+#
+# Same libc constraint as auth-build above.
 # --------------------------------------------------------------------------
-FROM node:20-alpine AS auth-deps
+FROM node:20-slim AS auth-deps
 WORKDIR /build
-RUN apk add --no-cache python3 make g++
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 make g++ \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 COPY auth/package.json auth/package-lock.json* ./
 RUN npm ci --omit=dev || npm install --omit=dev
 
