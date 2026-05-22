@@ -24,8 +24,11 @@ export function TestPrint() {
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Test print</h1>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          Composer
+        </p>
+        <h1 className="mt-1 text-3xl font-semibold tracking-tight">Test print</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
           Send a manual print job to validate the bridge or to fire one-off receipts.
         </p>
       </header>

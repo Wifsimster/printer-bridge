@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import {
   Activity,
   AlertTriangle,
+  ArrowRight,
   CheckCircle2,
   Clock,
   Printer,
@@ -23,6 +24,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { AnalyticsSummary, endpoints, HealthResponse } from "@/lib/api";
 import { formatDuration, timeAgo } from "@/lib/utils";
+import { cn } from "@/lib/utils";
+
+type Tone = "primary" | "success" | "info" | "warning";
 
 export function Dashboard() {
   const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
@@ -67,10 +71,13 @@ export function Dashboard() {
 
   if (loading) {
     return (
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <Skeleton key={i} className="h-32" />
-        ))}
+      <div className="space-y-6">
+        <Skeleton className="h-20 w-full" />
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-32" />
+          ))}
+        </div>
       </div>
     );
   }
@@ -79,15 +86,18 @@ export function Dashboard() {
   const last24h = summary?.last_24h ?? { success: 0, error: 0 };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Supervision</h1>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            Supervision
+          </p>
+          <h1 className="mt-1 text-3xl font-semibold tracking-tight">Dashboard</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
             Live state of the print bridge and the connected thermal printer.
           </p>
         </div>
-        <Button onClick={runTestPrint} disabled={printing}>
+        <Button onClick={runTestPrint} disabled={printing} className="shadow-soft">
           <Zap className="mr-2 h-4 w-4" />
           {printing ? "Sending…" : "Run test print"}
         </Button>
@@ -108,11 +118,18 @@ export function Dashboard() {
         <Stat
           icon={<Printer className="h-4 w-4" />}
           label="Printer"
+          tone={health?.printer.reachable ? "success" : "warning"}
           value={
             health?.printer.reachable ? (
-              <Badge variant="success">reachable</Badge>
+              <span className="flex items-center gap-2">
+                <span className="flex h-2 w-2 rounded-full bg-success" />
+                Online
+              </span>
             ) : (
-              <Badge variant="destructive">unreachable</Badge>
+              <span className="flex items-center gap-2">
+                <span className="flex h-2 w-2 rounded-full bg-destructive" />
+                Offline
+              </span>
             )
           }
           hint={`${health?.printer.host ?? "—"}:${health?.printer.port ?? "—"}`}
@@ -120,18 +137,21 @@ export function Dashboard() {
         <Stat
           icon={<TrendingUp className="h-4 w-4" />}
           label="Success rate"
+          tone="primary"
           value={`${totals.success_rate.toFixed(1)}%`}
           hint={`${totals.success}/${totals.all} jobs total`}
         />
         <Stat
           icon={<Activity className="h-4 w-4" />}
           label="Last 24 h"
+          tone="info"
           value={`${last24h.success + last24h.error}`}
           hint={`${last24h.success} ok · ${last24h.error} errors`}
         />
         <Stat
           icon={<Clock className="h-4 w-4" />}
           label="Avg duration"
+          tone="primary"
           value={formatDuration(summary?.avg_duration_ms_7d ?? 0)}
           hint="Last 7 days, successful jobs"
         />
@@ -148,25 +168,36 @@ export function Dashboard() {
           </CardHeader>
           <CardContent>
             {summary?.last_job ? (
-              <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/30 p-4">
                 <div>
-                  <p className="text-2xl font-semibold">
+                  <p className="text-3xl font-semibold tracking-tight">
                     {timeAgo(summary.last_job.ts)}
                   </p>
-                  <p className="text-sm text-muted-foreground">
-                    {summary.last_job.job_type} — {summary.last_job.status}
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    <span className="font-mono">{summary.last_job.job_type}</span> ·{" "}
+                    {summary.last_job.status}
                   </p>
                 </div>
-                {summary.last_job.status === "success" ? (
-                  <CheckCircle2 className="h-10 w-10 text-success" />
-                ) : (
-                  <AlertTriangle className="h-10 w-10 text-destructive" />
-                )}
+                <div
+                  className={cn(
+                    "flex h-12 w-12 items-center justify-center rounded-full",
+                    summary.last_job.status === "success"
+                      ? "bg-success/10 text-success"
+                      : "bg-destructive/10 text-destructive"
+                  )}
+                >
+                  {summary.last_job.status === "success" ? (
+                    <CheckCircle2 className="h-6 w-6" />
+                  ) : (
+                    <AlertTriangle className="h-6 w-6" />
+                  )}
+                </div>
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground">
-                No jobs recorded yet — send something to /print/* or run a test print.
-              </p>
+              <EmptyState
+                title="Nothing printed yet"
+                hint="Send something to /print/* or click Run test print."
+              />
             )}
           </CardContent>
         </Card>
@@ -177,18 +208,24 @@ export function Dashboard() {
             <CardDescription>Common operator tasks.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
-            <Button variant="outline" className="w-full justify-start" asChild>
-              <Link to="/test">Send a custom print</Link>
-            </Button>
-            <Button variant="outline" className="w-full justify-start" asChild>
-              <Link to="/analytics">Open analytics</Link>
-            </Button>
-            <Button variant="outline" className="w-full justify-start" asChild>
-              <Link to="/jobs">Inspect job history</Link>
-            </Button>
-            <Button variant="outline" className="w-full justify-start" asChild>
-              <Link to="/settings">Edit configuration</Link>
-            </Button>
+            {[
+              { to: "/test", label: "Send a custom print" },
+              { to: "/analytics", label: "Open analytics" },
+              { to: "/jobs", label: "Inspect job history" },
+              { to: "/settings", label: "Edit configuration" },
+            ].map((a) => (
+              <Button
+                key={a.to}
+                variant="ghost"
+                className="group w-full justify-between border border-transparent hover:border-border hover:bg-accent/40"
+                asChild
+              >
+                <Link to={a.to}>
+                  <span>{a.label}</span>
+                  <ArrowRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                </Link>
+              </Button>
+            ))}
           </CardContent>
         </Card>
       </div>
@@ -202,26 +239,33 @@ export function Dashboard() {
         </CardHeader>
         <CardContent>
           {summary?.recent_errors.length ? (
-            <ul className="space-y-3">
+            <ul className="space-y-2">
               {summary.recent_errors.map((e) => (
                 <li
                   key={e.id}
-                  className="flex flex-col gap-1 rounded-md border bg-muted/20 p-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+                  className="flex flex-col gap-1 rounded-lg border border-destructive/20 bg-destructive-soft/40 p-3 text-sm sm:flex-row sm:items-center sm:justify-between"
                 >
-                  <div>
-                    <p className="font-medium">{e.job_type}</p>
-                    <p className="font-mono text-xs text-muted-foreground">
-                      {e.error}
-                    </p>
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+                    <div>
+                      <p className="font-medium">{e.job_type}</p>
+                      <p className="font-mono text-xs text-muted-foreground">
+                        {e.error}
+                      </p>
+                    </div>
                   </div>
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-xs text-muted-foreground sm:pl-3">
                     {timeAgo(e.ts)}
                   </span>
                 </li>
               ))}
             </ul>
           ) : (
-            <p className="text-sm text-muted-foreground">No errors recorded — nice.</p>
+            <EmptyState
+              title="No errors recorded"
+              hint="Nice — the bridge has been smooth sailing."
+              tone="success"
+            />
           )}
         </CardContent>
       </Card>
@@ -229,29 +273,99 @@ export function Dashboard() {
   );
 }
 
+const toneStyles: Record<
+  Tone,
+  { ring: string; iconBg: string; iconText: string }
+> = {
+  primary: {
+    ring: "ring-1 ring-primary/10",
+    iconBg: "bg-primary/10",
+    iconText: "text-primary",
+  },
+  success: {
+    ring: "ring-1 ring-success/10",
+    iconBg: "bg-success/10",
+    iconText: "text-success",
+  },
+  info: {
+    ring: "ring-1 ring-info/10",
+    iconBg: "bg-info/10",
+    iconText: "text-info",
+  },
+  warning: {
+    ring: "ring-1 ring-warning/10",
+    iconBg: "bg-warning/15",
+    iconText: "text-warning",
+  },
+};
+
 function Stat({
   icon,
   label,
   value,
   hint,
+  tone = "primary",
 }: {
   icon: React.ReactNode;
   label: string;
   value: React.ReactNode;
   hint?: string;
+  tone?: Tone;
 }) {
+  const styles = toneStyles[tone];
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">
-          {label}
-        </CardTitle>
-        <span className="text-muted-foreground">{icon}</span>
-      </CardHeader>
-      <CardContent>
-        <div className="text-2xl font-semibold">{value}</div>
-        {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
+    <Card className={cn("overflow-hidden hover:shadow-medium", styles.ring)}>
+      <CardContent className="p-5">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            {label}
+          </p>
+          <span
+            className={cn(
+              "flex h-8 w-8 items-center justify-center rounded-lg",
+              styles.iconBg,
+              styles.iconText
+            )}
+          >
+            {icon}
+          </span>
+        </div>
+        <div className="mt-3 text-2xl font-semibold tracking-tight">{value}</div>
+        {hint && (
+          <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
+            {hint}
+          </p>
+        )}
       </CardContent>
     </Card>
+  );
+}
+
+function EmptyState({
+  title,
+  hint,
+  tone = "muted",
+}: {
+  title: string;
+  hint?: string;
+  tone?: "muted" | "success";
+}) {
+  return (
+    <div
+      className={cn(
+        "flex flex-col items-center justify-center gap-1 rounded-lg border border-dashed py-8 text-center",
+        tone === "success" && "border-success/30 bg-success-soft/40"
+      )}
+    >
+      <p
+        className={cn(
+          "text-sm font-medium",
+          tone === "success" ? "text-success" : "text-foreground"
+        )}
+      >
+        {title}
+      </p>
+      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+    </div>
   );
 }

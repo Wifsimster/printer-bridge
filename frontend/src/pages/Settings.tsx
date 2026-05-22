@@ -112,8 +112,11 @@ export function Settings() {
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          Configuration
+        </p>
+        <h1 className="mt-1 text-3xl font-semibold tracking-tight">Settings</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
           Live configuration — persisted to /app/data/config.json. Takes effect
           on the next print job, no restart required.
         </p>

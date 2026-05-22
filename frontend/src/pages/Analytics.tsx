@@ -31,7 +31,14 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { AnalyticsSummary, endpoints, TimeseriesResponse } from "@/lib/api";
 
-const COLORS = ["hsl(221 83% 53%)", "hsl(142 71% 45%)", "hsl(38 92% 50%)", "hsl(280 67% 55%)"];
+const COLORS = [
+  "hsl(var(--success))",
+  "hsl(var(--destructive))",
+  "hsl(var(--warning))",
+  "hsl(var(--info))",
+];
+const SUCCESS_COLOR = "hsl(var(--success))";
+const ERROR_COLOR = "hsl(var(--destructive))";
 
 export function Analytics() {
   const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
@@ -95,8 +102,11 @@ export function Analytics() {
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Analytics</h1>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          Insights
+        </p>
+        <h1 className="mt-1 text-3xl font-semibold tracking-tight">Analytics</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
           Print job throughput, type breakdown, and success-rate trends.
         </p>
       </header>
@@ -124,36 +134,40 @@ export function Analytics() {
               <AreaChart data={seriesData}>
                 <defs>
                   <linearGradient id="successGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="hsl(142 71% 45%)" stopOpacity={0.6} />
-                    <stop offset="100%" stopColor="hsl(142 71% 45%)" stopOpacity={0} />
+                    <stop offset="0%" stopColor="hsl(var(--success))" stopOpacity={0.6} />
+                    <stop offset="100%" stopColor="hsl(var(--success))" stopOpacity={0} />
                   </linearGradient>
                   <linearGradient id="errorGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="hsl(0 84% 60%)" stopOpacity={0.5} />
-                    <stop offset="100%" stopColor="hsl(0 84% 60%)" stopOpacity={0} />
+                    <stop offset="0%" stopColor="hsl(var(--destructive))" stopOpacity={0.5} />
+                    <stop offset="100%" stopColor="hsl(var(--destructive))" stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                <XAxis dataKey="label" tick={{ fontSize: 11 }} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} stroke="hsl(var(--border))" />
+                <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} stroke="hsl(var(--border))" />
                 <Tooltip
                   contentStyle={{
                     background: "hsl(var(--card))",
                     border: "1px solid hsl(var(--border))",
-                    borderRadius: 6,
+                    borderRadius: 10,
+                    boxShadow: "var(--shadow-medium)",
+                    color: "hsl(var(--foreground))",
                   }}
+                  labelStyle={{ color: "hsl(var(--foreground))" }}
+                  itemStyle={{ color: "hsl(var(--foreground))" }}
                 />
                 <Legend />
                 <Area
                   type="monotone"
                   dataKey="success"
-                  stroke="hsl(142 71% 45%)"
+                  stroke="hsl(var(--success))"
                   fill="url(#successGrad)"
                   stackId="1"
                 />
                 <Area
                   type="monotone"
                   dataKey="error"
-                  stroke="hsl(0 84% 60%)"
+                  stroke="hsl(var(--destructive))"
                   fill="url(#errorGrad)"
                   stackId="1"
                 />
@@ -180,7 +194,7 @@ export function Analytics() {
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={byTypeData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis dataKey="type" tick={{ fontSize: 11 }} />
+                  <XAxis dataKey="type" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} stroke="hsl(var(--border))" />
                   <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
                   <Tooltip
                     contentStyle={{
@@ -190,8 +204,8 @@ export function Analytics() {
                     }}
                   />
                   <Legend />
-                  <Bar dataKey="success" stackId="a" fill="hsl(142 71% 45%)" />
-                  <Bar dataKey="error" stackId="a" fill="hsl(0 84% 60%)" />
+                  <Bar dataKey="success" stackId="a" fill="hsl(var(--success))" />
+                  <Bar dataKey="error" stackId="a" fill="hsl(var(--destructive))" />
                 </BarChart>
               </ResponsiveContainer>
             )}

@@ -30,6 +30,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { ApiError, endpoints, setToken } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -95,23 +96,26 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5 px-4 py-10">
-      <div className="mx-auto max-w-3xl">
+    <div className="app-shell-bg min-h-screen px-4 py-10">
+      <div className="mx-auto max-w-3xl animate-fade-in">
         <header className="mb-8 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-              <Printer className="h-5 w-5 text-primary" />
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-info text-primary-foreground shadow-medium">
+              <Printer className="h-5 w-5" />
             </div>
             <div>
-              <h1 className="text-xl font-semibold">printcast setup</h1>
+              <h1 className="text-xl font-semibold tracking-tight">printcast setup</h1>
               <p className="text-sm text-muted-foreground">
                 First-run configuration wizard
               </p>
             </div>
           </div>
-          <Badge variant="outline">
-            Step {step + 1} of {stepTitles.length}
-          </Badge>
+          <div className="flex items-center gap-3">
+            <Badge variant="outline">
+              Step {step + 1} of {stepTitles.length}
+            </Badge>
+            <ThemeToggle />
+          </div>
         </header>
 
         <div className="mb-8 space-y-2">

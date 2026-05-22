@@ -52,8 +52,11 @@ export function Jobs() {
     <div className="space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Job history</h1>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            History
+          </p>
+          <h1 className="mt-1 text-3xl font-semibold tracking-tight">Jobs</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
             Last 200 print jobs recorded in the local SQLite store.
           </p>
         </div>
