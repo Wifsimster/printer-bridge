@@ -34,6 +34,7 @@ services:
       - "traefik.http.routers.printcast.rule=Host(`printcast.battistella.ovh`)"
       - "traefik.http.routers.printcast.entrypoints=websecure"
       - "traefik.http.routers.printcast.tls=true"
+      - "traefik.http.routers.printcast.tls.certresolver=letsencrypt"
       - "traefik.http.services.printcast.loadbalancer.server.port=8080"
 
 networks:
