@@ -555,6 +555,18 @@ def render_test(p: Network) -> None:
     finish(p, True)
 
 
+def render_selftest(p: Network) -> None:
+    """Trigger the printer's built-in hardware status sheet.
+
+    ESC/POS `GS ( A pL pH n m` with n=0 (roll paper), m=2 (printer status):
+    the printer's firmware prints model, firmware version, codepage and — on
+    networked models — interface info (IP, MAC, subnet, gateway). Bypasses
+    software text rendering, so it still works when the codepage/encoding is
+    wrong or the host has no font mapping for what we send.
+    """
+    p._raw(bytes([0x1D, 0x28, 0x41, 0x02, 0x00, 0x00, 0x02]))
+
+
 # --------------------------------------------------------------------------
 # Auth
 # --------------------------------------------------------------------------
@@ -776,6 +788,13 @@ def print_test(request: Request, _: dict = Depends(require_admin)) -> dict:
     run_print_job("test", render_test,
                   source=_request_source(request), summary="test")
     return {"status": "printed", "job": "test"}
+
+
+@app.post("/print/selftest")
+def print_selftest(request: Request, _: dict = Depends(require_admin)) -> dict:
+    run_print_job("selftest", render_selftest,
+                  source=_request_source(request), summary="selftest")
+    return {"status": "printed", "job": "selftest"}
 
 
 # --------------------------------------------------------------------------

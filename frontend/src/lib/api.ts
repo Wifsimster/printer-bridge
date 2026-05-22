@@ -163,6 +163,8 @@ export const endpoints = {
   timeseries: (hours: number) =>
     api<TimeseriesResponse>(`/api/analytics/timeseries?hours=${hours}`),
   printTest: () => api<{ status: string }>("/print/test", { method: "POST" }),
+  printSelfTest: () =>
+    api<{ status: string }>("/print/selftest", { method: "POST" }),
   printText: (payload: Record<string, unknown>) =>
     api<{ status: string }>("/print/text", {
       method: "POST",
