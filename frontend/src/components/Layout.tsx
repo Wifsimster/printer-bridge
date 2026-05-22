@@ -13,20 +13,30 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { clearToken, endpoints, getToken, HealthResponse } from "@/lib/api";
+import { endpoints, getToken, HealthResponse } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
-const nav = [
+type NavItem = {
+  to: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  adminOnly?: boolean;
+};
+
+const nav: NavItem[] = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/analytics", label: "Analytics", icon: BarChart3 },
+  { to: "/analytics", label: "Analytics", icon: BarChart3, adminOnly: true },
   { to: "/jobs", label: "Jobs", icon: ListChecks },
-  { to: "/test", label: "Test print", icon: TestTube2 },
-  { to: "/settings", label: "Settings", icon: SettingsIcon },
+  { to: "/test", label: "Test print", icon: TestTube2, adminOnly: true },
+  { to: "/settings", label: "Settings", icon: SettingsIcon, adminOnly: true },
 ];
 
 export function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { me, signOut } = useAuth();
   const [health, setHealth] = useState<HealthResponse | null>(null);
+  const visibleNav = nav.filter((item) => !item.adminOnly || me?.role === "admin");
 
   useEffect(() => {
     if (!getToken()) {
@@ -55,7 +65,7 @@ export function Layout() {
           <span className="text-lg font-semibold tracking-tight">printcast</span>
         </div>
         <nav className="flex-1 space-y-1 p-3">
-          {nav.map((item) => (
+          {visibleNav.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
@@ -80,11 +90,12 @@ export function Layout() {
             size="sm"
             className="w-full justify-start"
             onClick={() => {
-              clearToken();
+              signOut();
               navigate("/login", { replace: true });
             }}
           >
-            <LogOut className="mr-2 h-4 w-4" /> Sign out
+            <LogOut className="mr-2 h-4 w-4" />
+            {me ? `Sign out (${me.username})` : "Sign out"}
           </Button>
         </div>
       </aside>
@@ -108,7 +119,7 @@ export function Layout() {
             )}
           </div>
           <nav className="flex gap-1 md:hidden">
-            {nav.map((item) => (
+            {visibleNav.map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}

@@ -85,6 +85,9 @@ CONFIG: dict[str, Any] = {
     "printer_retries": max(1, _int_env("PRINTER_RETRIES", 3)),
     "tz": os.environ.get("TZ", "Europe/Paris"),
     "setup_completed": False,
+    # Single-user auth model: the bearer token grants the admin role.
+    "admin_username": os.environ.get("PRINTCAST_ADMIN_USERNAME", "admin"),
+    "admin_role": "admin",
 }
 CONFIG_LOCK = threading.Lock()
 
@@ -548,7 +551,7 @@ def render_test(p: Network) -> None:
 # --------------------------------------------------------------------------
 # Auth
 # --------------------------------------------------------------------------
-def require_auth(authorization: Optional[str] = Header(default=None)) -> None:
+def require_auth(authorization: Optional[str] = Header(default=None)) -> dict:
     token = CONFIG.get("printer_token", "")
     if not token:
         raise HTTPException(status_code=500,
@@ -558,6 +561,18 @@ def require_auth(authorization: Optional[str] = Header(default=None)) -> None:
     if not hmac.compare_digest(provided, expected):
         raise HTTPException(status_code=401,
                             detail="missing or invalid bearer token")
+    return {
+        "username": CONFIG.get("admin_username", "admin"),
+        "role": CONFIG.get("admin_role", "admin"),
+    }
+
+
+def require_admin(user: dict = Depends(require_auth)) -> dict:
+    """Gate admin-only routes (settings, analytics, test print)."""
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403,
+                            detail="admin role required")
+    return user
 
 
 def _admin_required_when_setup(authorization: Optional[str] = Header(default=None)) -> None:
@@ -704,7 +719,7 @@ def print_generic(job: GenericJob, request: Request,
 
 
 @app.post("/print/test")
-def print_test(request: Request, _: None = Depends(require_auth)) -> dict:
+def print_test(request: Request, _: dict = Depends(require_admin)) -> dict:
     run_print_job("test", render_test,
                   source=_request_source(request), summary="test")
     return {"status": "printed", "job": "test"}
@@ -766,13 +781,18 @@ def setup_complete(payload: SetupPayload,
     return {"status": "ok", "config": _public_config()}
 
 
+@app.get("/api/me")
+def get_me(user: dict = Depends(require_auth)) -> dict:
+    return user
+
+
 @app.get("/api/config")
-def get_config(_: None = Depends(require_auth)) -> dict:
+def get_config(_: dict = Depends(require_admin)) -> dict:
     return _public_config()
 
 
 @app.put("/api/config")
-def update_config(payload: ConfigUpdate, _: None = Depends(require_auth)) -> dict:
+def update_config(payload: ConfigUpdate, _: dict = Depends(require_admin)) -> dict:
     with CONFIG_LOCK:
         data = payload.model_dump(exclude_none=True)
         for key, value in data.items():
@@ -803,7 +823,7 @@ def list_jobs(limit: int = 100, status: Optional[str] = None,
 
 
 @app.get("/api/analytics/summary")
-def analytics_summary(_: None = Depends(require_auth)) -> dict:
+def analytics_summary(_: dict = Depends(require_admin)) -> dict:
     now = time.time()
     cutoff_24h = now - 86400
     cutoff_7d = now - 7 * 86400
@@ -851,7 +871,7 @@ def analytics_summary(_: None = Depends(require_auth)) -> dict:
 
 @app.get("/api/analytics/timeseries")
 def analytics_timeseries(hours: int = 24,
-                         _: None = Depends(require_auth)) -> dict:
+                         _: dict = Depends(require_admin)) -> dict:
     hours = max(1, min(int(hours), 24 * 30))
     bucket_seconds = 3600 if hours <= 48 else 86400
     now = time.time()

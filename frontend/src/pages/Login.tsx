@@ -13,11 +13,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { endpoints, setToken } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 export function Login() {
   const [token, setTokenValue] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const navigate = useNavigate();
+  const { refresh } = useAuth();
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -25,7 +27,8 @@ export function Login() {
     setSubmitting(true);
     setToken(token.trim());
     try {
-      await endpoints.config();
+      await endpoints.me();
+      await refresh();
       toast.success("Signed in");
       navigate("/", { replace: true });
     } catch {
