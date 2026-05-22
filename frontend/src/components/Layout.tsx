@@ -90,6 +90,14 @@ export function Layout() {
           ))}
         </nav>
         <div className="border-t p-3 space-y-1">
+          {me ? (
+            <div
+              className="px-3 pb-1 text-xs text-muted-foreground truncate"
+              title={me.email}
+            >
+              {me.email}
+            </div>
+          ) : null}
           <Button
             variant="ghost"
             size="sm"
@@ -107,8 +115,7 @@ export function Layout() {
               navigate("/", { replace: true });
             }}
           >
-            <LogOut className="mr-2 h-4 w-4" />
-            {me ? `Sign out (${me.email})` : "Sign out"}
+            <LogOut className="mr-2 h-4 w-4" /> Sign out
           </Button>
         </div>
       </aside>
