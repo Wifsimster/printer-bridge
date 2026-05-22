@@ -43,6 +43,10 @@
     "unreachable": "unreachable",
     "unknown": "unknown"
   },
+  "footer": {
+    "version": "printcast v{{version}}",
+    "built": "Built {{date}}"
+  },
   "login": {
     "title": "Sign in to printcast",
     "description": "Use your admin email and password.",

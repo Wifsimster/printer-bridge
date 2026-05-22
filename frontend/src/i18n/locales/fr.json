@@ -43,6 +43,10 @@
     "unreachable": "inaccessible",
     "unknown": "inconnu"
   },
+  "footer": {
+    "version": "printcast v{{version}}",
+    "built": "Compilé le {{date}}"
+  },
   "login": {
     "title": "Connexion à printcast",
     "description": "Utilisez votre e-mail et mot de passe administrateur.",

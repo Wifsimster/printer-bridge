@@ -3,7 +3,16 @@ import react from "@vitejs/plugin-react";
 import path from "path";
 import fs from "fs";
 
-const version = fs.readFileSync(path.resolve(__dirname, "../VERSION"), "utf8").trim();
+function readVersion(): string {
+  const versionFile = path.resolve(__dirname, "../VERSION");
+  if (fs.existsSync(versionFile)) {
+    return fs.readFileSync(versionFile, "utf8").trim();
+  }
+  const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, "package.json"), "utf8"));
+  return pkg.version ?? "0.0.0";
+}
+
+const version = readVersion();
 const buildDate = new Date().toISOString();
 
 export default defineConfig({
