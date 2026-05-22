@@ -26,7 +26,7 @@ export function TestPrint() {
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="text-2xl font-semibold tracking-tight">{t("testPrint.title")}</h1>
+        <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">{t("testPrint.title")}</h1>
         <p className="text-sm text-muted-foreground">{t("testPrint.description")}</p>
       </header>
 
@@ -37,7 +37,7 @@ export function TestPrint() {
         </CardHeader>
         <CardContent>
           <Tabs defaultValue="selftest">
-            <TabsList>
+            <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1">
               <TabsTrigger value="selftest">{t("testPrint.tabSelfTest")}</TabsTrigger>
               <TabsTrigger value="quick">{t("testPrint.tabQuick")}</TabsTrigger>
               <TabsTrigger value="text">{t("testPrint.tabText")}</TabsTrigger>
@@ -79,7 +79,7 @@ function SelfTest() {
   return (
     <div className="space-y-3">
       <p className="text-sm text-muted-foreground">{t("testPrint.selfTestDesc")}</p>
-      <Button onClick={run} disabled={busy}>
+      <Button onClick={run} disabled={busy} className="w-full sm:w-auto">
         {busy ? (
           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
         ) : (
@@ -108,7 +108,7 @@ function QuickTest() {
   return (
     <div className="space-y-3">
       <p className="text-sm text-muted-foreground">{t("testPrint.quickDesc")}</p>
-      <Button onClick={run} disabled={busy}>
+      <Button onClick={run} disabled={busy} className="w-full sm:w-auto">
         {busy ? (
           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
         ) : (
@@ -160,7 +160,7 @@ function TextPrint() {
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <Label>{t("testPrint.alignment")}</Label>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {(["left", "center", "right"] as const).map((a) => (
               <Button
                 key={a}
@@ -168,6 +168,7 @@ function TextPrint() {
                 variant={align === a ? "default" : "outline"}
                 onClick={() => setAlign(a)}
                 type="button"
+                className="flex-1 sm:flex-none"
               >
                 {alignLabels[a]}
               </Button>
@@ -181,12 +182,13 @@ function TextPrint() {
             variant={bold ? "default" : "outline"}
             onClick={() => setBold((b) => !b)}
             type="button"
+            className="w-full sm:w-auto"
           >
             {bold ? t("testPrint.boldOn") : t("testPrint.boldOff")}
           </Button>
         </div>
       </div>
-      <Button onClick={run} disabled={busy || !text.trim()}>
+      <Button onClick={run} disabled={busy || !text.trim()} className="w-full sm:w-auto">
         {busy ? (
           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
         ) : (
@@ -271,7 +273,7 @@ function ReceiptPrint() {
         />
         <Label htmlFor="ts">{t("testPrint.receiptTimestamp")}</Label>
       </div>
-      <Button onClick={run} disabled={busy}>
+      <Button onClick={run} disabled={busy} className="w-full sm:w-auto">
         {busy ? (
           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
         ) : (

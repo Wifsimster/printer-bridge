@@ -97,26 +97,30 @@ export function Analytics() {
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="text-2xl font-semibold tracking-tight">{t("analytics.title")}</h1>
+        <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">{t("analytics.title")}</h1>
         <p className="text-sm text-muted-foreground">{t("analytics.description")}</p>
       </header>
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0">
-          <div>
+        <CardHeader className="flex flex-col gap-3 space-y-0 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
             <CardTitle>{t("analytics.jobsOverTimeTitle")}</CardTitle>
             <CardDescription>{t("analytics.jobsOverTimeDesc")}</CardDescription>
           </div>
-          <Tabs value={String(hours)} onValueChange={(v) => setHours(Number(v))}>
-            <TabsList>
-              <TabsTrigger value="24">{t("analytics.tab24h")}</TabsTrigger>
-              <TabsTrigger value="48">{t("analytics.tab48h")}</TabsTrigger>
-              <TabsTrigger value="168">{t("analytics.tab7d")}</TabsTrigger>
-              <TabsTrigger value="720">{t("analytics.tab30d")}</TabsTrigger>
+          <Tabs
+            value={String(hours)}
+            onValueChange={(v) => setHours(Number(v))}
+            className="w-full sm:w-auto"
+          >
+            <TabsList className="w-full sm:w-auto">
+              <TabsTrigger value="24" className="flex-1 sm:flex-none">{t("analytics.tab24h")}</TabsTrigger>
+              <TabsTrigger value="48" className="flex-1 sm:flex-none">{t("analytics.tab48h")}</TabsTrigger>
+              <TabsTrigger value="168" className="flex-1 sm:flex-none">{t("analytics.tab7d")}</TabsTrigger>
+              <TabsTrigger value="720" className="flex-1 sm:flex-none">{t("analytics.tab30d")}</TabsTrigger>
             </TabsList>
           </Tabs>
         </CardHeader>
-        <CardContent className="h-72">
+        <CardContent className="h-56 sm:h-72">
           {loading ? (
             <Skeleton className="h-full w-full" />
           ) : (
@@ -171,7 +175,7 @@ export function Analytics() {
             <CardTitle>{t("analytics.byTypeTitle")}</CardTitle>
             <CardDescription>{t("analytics.byTypeDesc")}</CardDescription>
           </CardHeader>
-          <CardContent className="h-64">
+          <CardContent className="h-56 sm:h-64">
             {loading ? (
               <Skeleton className="h-full w-full" />
             ) : byTypeData.length === 0 ? (
@@ -203,7 +207,7 @@ export function Analytics() {
             <CardTitle>{t("analytics.overallTitle")}</CardTitle>
             <CardDescription>{t("analytics.overallDesc")}</CardDescription>
           </CardHeader>
-          <CardContent className="h-64">
+          <CardContent className="h-56 sm:h-64">
             {loading ? (
               <Skeleton className="h-full w-full" />
             ) : pieData.every((d) => d.value === 0) ? (

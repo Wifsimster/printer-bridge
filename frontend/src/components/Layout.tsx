@@ -149,14 +149,27 @@ export function Layout() {
         </div>
       </aside>
 
-      <div className="flex flex-1 flex-col">
-        <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b border-border/60 bg-background/70 px-4 backdrop-blur md:px-8">
-          <div className="flex items-center gap-3">
-            <div className="md:hidden flex items-center gap-2">
-              <div className="flex h-7 w-7 items-center justify-center rounded-md bg-gradient-to-br from-primary to-info text-primary-foreground">
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="sticky top-0 z-10 flex h-14 items-center justify-between gap-2 border-b border-border/60 bg-background/70 px-3 backdrop-blur md:h-16 md:px-8">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex min-w-0 items-center gap-2 md:hidden">
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-primary to-info text-primary-foreground">
                 <Printer className="h-3.5 w-3.5" />
               </div>
-              <span className="text-sm font-semibold">printcast</span>
+              <span className="truncate text-sm font-semibold">printcast</span>
+              {health && (
+                <span
+                  className={cn(
+                    "h-2 w-2 shrink-0 rounded-full",
+                    health.printer.reachable ? "bg-success" : "bg-destructive"
+                  )}
+                  aria-label={
+                    health.printer.reachable
+                      ? t("header.reachable")
+                      : t("header.unreachable")
+                  }
+                />
+              )}
             </div>
             <div className="hidden items-center gap-2 rounded-full border border-border/60 bg-background/60 px-3 py-1.5 text-xs md:flex">
               <Activity className="h-3.5 w-3.5 text-muted-foreground" />
@@ -183,16 +196,18 @@ export function Layout() {
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <nav className="flex gap-1 md:hidden">
+          <div className="flex shrink-0 items-center gap-1 md:gap-2">
+            <nav className="-mx-1 flex max-w-[60vw] gap-0.5 overflow-x-auto px-1 md:hidden">
               {visibleNav.map((item) => (
                 <NavLink
                   key={item.to}
                   to={item.to}
                   end={item.end}
+                  aria-label={item.label}
+                  title={item.label}
                   className={({ isActive }) =>
                     cn(
-                      "rounded-md p-2 transition-colors",
+                      "flex h-9 w-9 shrink-0 items-center justify-center rounded-md transition-colors",
                       isActive
                         ? "bg-primary/10 text-primary"
                         : "text-muted-foreground hover:bg-accent/50"
@@ -202,6 +217,19 @@ export function Layout() {
                   <item.icon className="h-4 w-4" />
                 </NavLink>
               ))}
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label={t("common.signOut")}
+                title={t("common.signOut")}
+                className="h-9 w-9 shrink-0 text-muted-foreground"
+                onClick={async () => {
+                  await signOut();
+                  navigate("/", { replace: true });
+                }}
+              >
+                <LogOut className="h-4 w-4" />
+              </Button>
             </nav>
             <ThemeToggle />
           </div>

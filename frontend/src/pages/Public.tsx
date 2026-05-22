@@ -23,6 +23,7 @@ import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { ApiError, endpoints } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { cn } from "@/lib/utils";
 import { AppFooter } from "@/components/AppFooter";
 import { PublicQR } from "@/components/public/PublicQR";
 import { PublicFortune } from "@/components/public/PublicFortune";
@@ -39,31 +40,34 @@ export function Public() {
 
   return (
     <div className="app-shell-bg flex min-h-screen flex-col">
-      <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b border-border/60 bg-background/70 px-4 backdrop-blur md:px-6">
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-info text-primary-foreground shadow-soft">
+      <header className="sticky top-0 z-10 flex h-14 items-center justify-between gap-2 border-b border-border/60 bg-background/70 px-3 backdrop-blur md:h-16 md:px-6">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-info text-primary-foreground shadow-soft">
             <Printer className="h-4 w-4" />
           </div>
-          <span className="text-base font-semibold tracking-tight">printcast</span>
+          <span className="truncate text-base font-semibold tracking-tight">printcast</span>
         </div>
-        <div className="flex items-center gap-2">
-          <LanguageSwitcher />
+        <div className="flex shrink-0 items-center gap-1.5 md:gap-2">
+          <LanguageSwitcher showIcon={false} />
           <ThemeToggle />
           <Button
             variant={signedIn ? "default" : "outline"}
             size="sm"
             onClick={() => navigate(signedIn ? "/admin" : "/login")}
-            className={signedIn ? "shadow-soft" : ""}
+            className={cn("shrink-0", signedIn && "shadow-soft")}
+            aria-label={signedIn ? t("public.adminConsole") : t("public.adminLogin")}
           >
-            <ShieldCheck className="mr-2 h-4 w-4" />
-            {signedIn ? t("public.adminConsole") : t("public.adminLogin")}
+            <ShieldCheck className="h-4 w-4 sm:mr-2" />
+            <span className="hidden sm:inline">
+              {signedIn ? t("public.adminConsole") : t("public.adminLogin")}
+            </span>
           </Button>
         </div>
       </header>
 
       <main className="mx-auto w-full max-w-3xl flex-1 animate-fade-in space-y-6 p-4 md:p-8">
         <div className="space-y-1.5">
-          <h1 className="text-3xl font-semibold tracking-tight">{t("public.title")}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{t("public.title")}</h1>
           <p className="text-sm text-muted-foreground">{t("public.description")}</p>
         </div>
 
@@ -74,7 +78,7 @@ export function Public() {
           </CardHeader>
           <CardContent>
             <Tabs defaultValue="text">
-              <TabsList className="flex h-auto flex-wrap justify-start gap-1">
+              <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1">
                 <TabsTrigger value="text">{t("public.tabText")}</TabsTrigger>
                 <TabsTrigger value="draw">{t("public.tabDraw")}</TabsTrigger>
                 <TabsTrigger value="qr">{t("public.tabQr")}</TabsTrigger>
@@ -148,7 +152,7 @@ function PublicText() {
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <Label>{t("public.alignment")}</Label>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {(["left", "center", "right"] as const).map((a) => (
               <Button
                 key={a}
@@ -156,6 +160,7 @@ function PublicText() {
                 variant={align === a ? "default" : "outline"}
                 onClick={() => setAlign(a)}
                 type="button"
+                className="flex-1 sm:flex-none"
               >
                 {alignLabels[a]}
               </Button>
@@ -169,12 +174,13 @@ function PublicText() {
             variant={bold ? "default" : "outline"}
             onClick={() => setBold((b) => !b)}
             type="button"
+            className="w-full sm:w-auto"
           >
             {bold ? t("public.boldOn") : t("public.boldOff")}
           </Button>
         </div>
       </div>
-      <Button onClick={run} disabled={busy || !text.trim()}>
+      <Button onClick={run} disabled={busy || !text.trim()} className="w-full sm:w-auto">
         {busy ? (
           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
         ) : (
@@ -288,8 +294,12 @@ function PublicDraw() {
           onPointerCancel={onUp}
         />
       </div>
-      <div className="flex flex-wrap gap-2">
-        <Button onClick={run} disabled={busy || !hasInk}>
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+        <Button
+          onClick={run}
+          disabled={busy || !hasInk}
+          className="w-full sm:w-auto"
+        >
           {busy ? (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
           ) : (
@@ -297,7 +307,12 @@ function PublicDraw() {
           )}
           {t("public.printDrawing")}
         </Button>
-        <Button variant="outline" onClick={clear} disabled={busy}>
+        <Button
+          variant="outline"
+          onClick={clear}
+          disabled={busy}
+          className="w-full sm:w-auto"
+        >
           <Eraser className="mr-2 h-4 w-4" /> {t("public.clear")}
         </Button>
       </div>

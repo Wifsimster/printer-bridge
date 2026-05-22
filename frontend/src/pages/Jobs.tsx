@@ -53,32 +53,42 @@ export function Jobs() {
   return (
     <div className="space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{t("jobs.title")}</h1>
+        <div className="min-w-0">
+          <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">{t("jobs.title")}</h1>
           <p className="text-sm text-muted-foreground">{t("jobs.description")}</p>
         </div>
-        <Button variant="outline" onClick={load}>
+        <Button variant="outline" onClick={load} className="w-full sm:w-auto">
           <RefreshCw className="mr-2 h-4 w-4" /> {t("common.refresh")}
         </Button>
       </header>
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0">
-          <div>
+        <CardHeader className="flex flex-col gap-3 space-y-0 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
             <CardTitle>{t("jobs.tableTitle")}</CardTitle>
             <CardDescription>{t("jobs.tableDesc")}</CardDescription>
           </div>
-          <Tabs value={filter} onValueChange={(v) => setFilter(v as Filter)}>
-            <TabsList>
-              <TabsTrigger value="all">{t("jobs.filterAll")}</TabsTrigger>
-              <TabsTrigger value="success">{t("jobs.filterSuccess")}</TabsTrigger>
-              <TabsTrigger value="error">{t("jobs.filterError")}</TabsTrigger>
+          <Tabs
+            value={filter}
+            onValueChange={(v) => setFilter(v as Filter)}
+            className="w-full sm:w-auto"
+          >
+            <TabsList className="w-full sm:w-auto">
+              <TabsTrigger value="all" className="flex-1 sm:flex-none">
+                {t("jobs.filterAll")}
+              </TabsTrigger>
+              <TabsTrigger value="success" className="flex-1 sm:flex-none">
+                {t("jobs.filterSuccess")}
+              </TabsTrigger>
+              <TabsTrigger value="error" className="flex-1 sm:flex-none">
+                {t("jobs.filterError")}
+              </TabsTrigger>
             </TabsList>
           </Tabs>
         </CardHeader>
-        <CardContent>
+        <CardContent className="px-0 sm:px-6">
           {loading ? (
-            <div className="space-y-2">
+            <div className="space-y-2 px-6 sm:px-0">
               {Array.from({ length: 8 }).map((_, i) => (
                 <Skeleton key={i} className="h-10 w-full" />
               ))}
@@ -88,6 +98,7 @@ export function Jobs() {
               {t("jobs.empty")}
             </p>
           ) : (
+            <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -126,6 +137,7 @@ export function Jobs() {
                 ))}
               </TableBody>
             </Table>
+            </div>
           )}
         </CardContent>
       </Card>
