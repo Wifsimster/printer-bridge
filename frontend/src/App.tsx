@@ -12,6 +12,7 @@ import { TestPrint } from "@/pages/TestPrint";
 import { Draw } from "@/pages/Draw";
 import { Login } from "@/pages/Login";
 import { SetupWizard } from "@/pages/SetupWizard";
+import { Public } from "@/pages/Public";
 
 export default function App() {
   const [status, setStatus] = useState<SetupStatus | null>(null);
@@ -45,13 +46,14 @@ export default function App() {
   return (
     <AuthProvider>
       <Routes>
+        <Route path="/" element={<Public />} />
         <Route path="/login" element={<Login />} />
-        <Route element={<Layout />}>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/jobs" element={<Jobs />} />
-          <Route path="/draw" element={<Draw />} />
+        <Route path="/admin" element={<Layout />}>
+          <Route index element={<Dashboard />} />
+          <Route path="jobs" element={<Jobs />} />
+          <Route path="draw" element={<Draw />} />
           <Route
-            path="/analytics"
+            path="analytics"
             element={
               <RequireAdmin>
                 <Analytics />
@@ -59,7 +61,7 @@ export default function App() {
             }
           />
           <Route
-            path="/test"
+            path="test"
             element={
               <RequireAdmin>
                 <TestPrint />
@@ -67,7 +69,7 @@ export default function App() {
             }
           />
           <Route
-            path="/settings"
+            path="settings"
             element={
               <RequireAdmin>
                 <Settings />

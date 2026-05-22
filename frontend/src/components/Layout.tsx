@@ -4,6 +4,7 @@ import {
   Activity,
   BarChart3,
   Brush,
+  Home,
   LayoutDashboard,
   ListChecks,
   LogOut,
@@ -21,16 +22,17 @@ type NavItem = {
   to: string;
   label: string;
   icon: typeof LayoutDashboard;
+  end?: boolean;
   adminOnly?: boolean;
 };
 
 const nav: NavItem[] = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/analytics", label: "Analytics", icon: BarChart3, adminOnly: true },
-  { to: "/jobs", label: "Jobs", icon: ListChecks },
-  { to: "/test", label: "Test print", icon: TestTube2, adminOnly: true },
-  { to: "/draw", label: "Draw", icon: Brush },
-  { to: "/settings", label: "Settings", icon: SettingsIcon, adminOnly: true },
+  { to: "/admin", label: "Dashboard", icon: LayoutDashboard, end: true },
+  { to: "/admin/analytics", label: "Analytics", icon: BarChart3, adminOnly: true },
+  { to: "/admin/jobs", label: "Jobs", icon: ListChecks },
+  { to: "/admin/draw", label: "Draw", icon: Brush },
+  { to: "/admin/test", label: "Test print", icon: TestTube2, adminOnly: true },
+  { to: "/admin/settings", label: "Settings", icon: SettingsIcon, adminOnly: true },
 ];
 
 export function Layout() {
@@ -72,7 +74,7 @@ export function Layout() {
             <NavLink
               key={item.to}
               to={item.to}
-              end={item.to === "/"}
+              end={item.end}
               className={({ isActive }) =>
                 cn(
                   "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
@@ -87,14 +89,22 @@ export function Layout() {
             </NavLink>
           ))}
         </nav>
-        <div className="border-t p-3">
+        <div className="border-t p-3 space-y-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full justify-start"
+            onClick={() => navigate("/")}
+          >
+            <Home className="mr-2 h-4 w-4" /> Public page
+          </Button>
           <Button
             variant="ghost"
             size="sm"
             className="w-full justify-start"
             onClick={async () => {
               await signOut();
-              navigate("/login", { replace: true });
+              navigate("/", { replace: true });
             }}
           >
             <LogOut className="mr-2 h-4 w-4" />
@@ -126,7 +136,7 @@ export function Layout() {
               <NavLink
                 key={item.to}
                 to={item.to}
-                end={item.to === "/"}
+                end={item.end}
                 className={({ isActive }) =>
                   cn(
                     "rounded-md p-2",

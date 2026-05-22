@@ -30,7 +30,7 @@ export function Login() {
       await endpoints.signIn(email.trim(), password);
       await refresh();
       toast.success("Signed in");
-      navigate("/", { replace: true });
+      navigate("/admin", { replace: true });
     } catch (err) {
       const msg =
         err instanceof ApiError
