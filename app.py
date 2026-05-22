@@ -615,9 +615,24 @@ def require_admin_or_bearer(
     return require_admin(require_session(request))
 
 
+def _effective_setup_completed() -> bool:
+    """True only when persisted config says so AND the auth sidecar has a user.
+    Mirrors the funnel-back-to-wizard logic in /api/setup/status so the wizard
+    endpoints stay open whenever the wizard is being shown."""
+    if not CONFIG.get("setup_completed"):
+        return False
+    try:
+        r = requests.get(f"{AUTH_INTERNAL_URL}/__auth/has-users", timeout=3)
+        if r.status_code == 200 and not r.json().get("has_users"):
+            return False
+    except requests.RequestException:
+        pass
+    return True
+
+
 def _admin_required_when_setup(request: Request) -> None:
     """Wizard endpoints: open before setup is complete, session-protected after."""
-    if not CONFIG.get("setup_completed"):
+    if not _effective_setup_completed():
         return
     require_admin(require_session(request))
 
@@ -783,21 +798,8 @@ def _public_config() -> dict[str, Any]:
 
 @app.get("/api/setup/status")
 def setup_status() -> dict:
-    # If the persisted config says setup is done but the auth sidecar has no
-    # users (e.g. upgrade from the pre-better-auth release, or someone wiped
-    # the auth DB), funnel the user back through the wizard instead of
-    # locking them out.
-    completed = bool(CONFIG.get("setup_completed"))
-    if completed:
-        try:
-            r = requests.get(f"{AUTH_INTERNAL_URL}/__auth/has-users", timeout=3)
-            if r.status_code == 200 and not r.json().get("has_users"):
-                completed = False
-        except requests.RequestException:
-            # Auth sidecar down; report current state and let the proxy 503 later.
-            pass
     return {
-        "setup_completed": completed,
+        "setup_completed": _effective_setup_completed(),
         "has_token": bool(CONFIG.get("printer_token")),
         "has_host": bool(CONFIG.get("printer_host")),
     }
