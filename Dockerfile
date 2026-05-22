@@ -18,7 +18,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app.py .
+COPY app.py discovery.py ./
 COPY --from=frontend /build/dist ./frontend/dist
 
 RUN useradd --create-home --uid 10001 appuser \
