@@ -125,21 +125,21 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
   const currentLang = (i18n.resolvedLanguage || i18n.language || "en").split("-")[0];
 
   return (
-    <div className="app-shell-bg min-h-screen px-4 py-10">
+    <div className="app-shell-bg min-h-screen px-3 py-6 sm:px-4 sm:py-10">
       <div className="mx-auto max-w-3xl animate-fade-in">
-        <header className="mb-8 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-info text-primary-foreground shadow-medium">
+        <header className="mb-6 flex flex-wrap items-center justify-between gap-3 sm:mb-8">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-info text-primary-foreground shadow-medium sm:h-11 sm:w-11">
               <Printer className="h-5 w-5" />
             </div>
-            <div>
-              <h1 className="text-xl font-semibold tracking-tight">{t("setup.headerTitle")}</h1>
+            <div className="min-w-0">
+              <h1 className="text-lg font-semibold tracking-tight sm:text-xl">{t("setup.headerTitle")}</h1>
               <p className="text-sm text-muted-foreground">{t("setup.headerSubtitle")}</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <div className="flex items-center gap-1">
-              <Globe className="h-4 w-4 text-muted-foreground" />
+              <Globe className="hidden h-4 w-4 text-muted-foreground sm:inline" />
               <select
                 aria-label={t("common.language")}
                 value={currentLang}
@@ -154,15 +154,15 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
               </select>
             </div>
             <ThemeToggle />
-            <Badge variant="outline">
+            <Badge variant="outline" className="shrink-0">
               {t("setup.stepBadge", { current: step + 1, total: stepTitles.length })}
             </Badge>
           </div>
         </header>
 
-        <div className="mb-8 space-y-2">
+        <div className="mb-6 space-y-2 sm:mb-8">
           <Progress value={progress} />
-          <div className="flex justify-between text-xs text-muted-foreground">
+          <div className="hidden justify-between text-xs text-muted-foreground sm:flex">
             {stepTitles.map((title, i) => (
               <span
                 key={title}
@@ -172,6 +172,12 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
               </span>
             ))}
           </div>
+          <p className="text-xs text-muted-foreground sm:hidden">
+            <span className="font-medium text-foreground">{stepTitles[step]}</span>
+            {step < stepTitles.length - 1 && (
+              <> &middot; {t("common.continue").toLowerCase()}: {stepTitles[step + 1]}</>
+            )}
+          </p>
         </div>
 
         <Card>
@@ -274,12 +280,17 @@ function PrinterStep({
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="rounded-lg border bg-muted/30 p-4">
-          <div className="flex items-center justify-between gap-3">
-            <div className="space-y-0.5">
+          <div className="flex flex-col items-stretch justify-between gap-3 sm:flex-row sm:items-center">
+            <div className="min-w-0 space-y-0.5">
               <p className="text-sm font-medium">{t("setup.autoDiscoverTitle")}</p>
               <p className="text-xs text-muted-foreground">{t("setup.autoDiscoverDesc")}</p>
             </div>
-            <Button variant="outline" onClick={scan} disabled={scanning}>
+            <Button
+              variant="outline"
+              onClick={scan}
+              disabled={scanning}
+              className="w-full shrink-0 sm:w-auto"
+            >
               {scanning ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
@@ -293,9 +304,9 @@ function PrinterStep({
               {candidates.map((c) => (
                 <li
                   key={`${c.host}:${c.port}`}
-                  className="flex items-center justify-between gap-3 rounded-md border bg-background p-2"
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-background p-2"
                 >
-                  <div className="min-w-0 space-y-0.5">
+                  <div className="min-w-0 flex-1 space-y-0.5">
                     <p className="truncate font-mono text-sm">
                       {c.host}:{c.port}
                     </p>
@@ -332,6 +343,7 @@ function PrinterStep({
                 placeholder="192.168.30.40"
                 value={form.printer_host}
                 onChange={(e) => update("printer_host", e.target.value)}
+                className="min-w-0 flex-1"
               />
               <Button
                 variant="outline"
@@ -339,6 +351,7 @@ function PrinterStep({
                 onClick={() => openPrinterWebUI(form.printer_host)}
                 disabled={!form.printer_host.trim()}
                 title={t("setup.openPrinterWebUI")}
+                className="shrink-0"
               >
                 <ExternalLink className="h-4 w-4" />
               </Button>
@@ -400,7 +413,7 @@ function PrinterStep({
           <p className="text-xs text-muted-foreground">{t("setup.tzHint")}</p>
         </div>
       </CardContent>
-      <CardFooter className="justify-between">
+      <CardFooter className="flex-wrap justify-between gap-2">
         <Button variant="outline" onClick={onBack}>
           <ArrowLeft className="mr-2 h-4 w-4" /> {t("common.back")}
         </Button>
@@ -515,14 +528,14 @@ function AuthStep({
         <p className="text-xs text-muted-foreground">{t("setup.passwordHint")}</p>
         <div className="space-y-2">
           <Label htmlFor="token">{t("setup.webhookToken")}</Label>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Input
               id="token"
               type="text"
               placeholder={t("login.tokenPlaceholder")}
               value={form.printer_token}
               onChange={(e) => update("printer_token", e.target.value)}
-              className="font-mono text-xs"
+              className="min-w-0 flex-1 font-mono text-xs"
             />
             <Button
               variant="outline"
@@ -530,10 +543,16 @@ function AuthStep({
               onClick={copy}
               disabled={!form.printer_token}
               title={t("common.copy")}
+              className="shrink-0"
             >
               <ClipboardCopy className="h-4 w-4" />
             </Button>
-            <Button variant="outline" onClick={gen} disabled={generating}>
+            <Button
+              variant="outline"
+              onClick={gen}
+              disabled={generating}
+              className="shrink-0"
+            >
               {generating ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
@@ -545,7 +564,7 @@ function AuthStep({
           <p className="text-xs text-muted-foreground">{t("setup.tokenHint")}</p>
         </div>
       </CardContent>
-      <CardFooter className="justify-between">
+      <CardFooter className="flex-wrap justify-between gap-2">
         <Button variant="outline" onClick={onBack}>
           <ArrowLeft className="mr-2 h-4 w-4" /> {t("common.back")}
         </Button>
@@ -601,14 +620,14 @@ function VerifyStep({
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="rounded-lg border bg-muted/30 p-4">
-          <div className="flex items-center justify-between">
-            <div className="space-y-1">
-              <p className="text-sm font-medium">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0 space-y-1">
+              <p className="break-all text-sm font-medium">
                 {form.printer_host}:{form.printer_port}
               </p>
               <p className="text-xs text-muted-foreground">{t("setup.tcpProbeHint")}</p>
             </div>
-            <div>
+            <div className="shrink-0">
               {checking ? (
                 <Badge variant="outline">
                   <Loader2 className="mr-1 h-3 w-3 animate-spin" /> {t("setup.checking")}
@@ -652,7 +671,7 @@ function VerifyStep({
           </Button>
         </div>
       </CardContent>
-      <CardFooter className="justify-between">
+      <CardFooter className="flex-wrap justify-between gap-2">
         <Button variant="outline" onClick={onBack}>
           <ArrowLeft className="mr-2 h-4 w-4" /> {t("common.back")}
         </Button>
@@ -701,7 +720,7 @@ function DoneStep({
           />
         </dl>
       </CardContent>
-      <CardFooter className="justify-between">
+      <CardFooter className="flex-wrap justify-between gap-2">
         <Button variant="outline" onClick={onBack}>
           <ArrowLeft className="mr-2 h-4 w-4" /> {t("common.back")}
         </Button>

@@ -84,11 +84,11 @@ export function Dashboard() {
   return (
     <div className="space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{t("dashboard.title")}</h1>
+        <div className="min-w-0">
+          <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">{t("dashboard.title")}</h1>
           <p className="text-sm text-muted-foreground">{t("dashboard.description")}</p>
         </div>
-        <Button onClick={runTestPrint} disabled={printing}>
+        <Button onClick={runTestPrint} disabled={printing} className="w-full sm:w-auto">
           <Zap className="mr-2 h-4 w-4" />
           {printing ? t("dashboard.sending") : t("dashboard.runTestPrint")}
         </Button>

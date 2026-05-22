@@ -118,7 +118,7 @@ export function Settings() {
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="text-2xl font-semibold tracking-tight">{t("settings.title")}</h1>
+        <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">{t("settings.title")}</h1>
         <p className="text-sm text-muted-foreground">{t("settings.description")}</p>
       </header>
 
@@ -192,8 +192,8 @@ export function Settings() {
                 onChange={(e) => setForm({ ...form, tz: e.target.value })}
               />
             </div>
-            <div className="flex gap-2">
-              <Button type="submit" disabled={busy}>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Button type="submit" disabled={busy} className="w-full sm:w-auto">
                 {busy ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
@@ -206,6 +206,7 @@ export function Settings() {
                 variant="outline"
                 onClick={testConnection}
                 disabled={testing}
+                className="w-full sm:w-auto"
               >
                 {testing ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -254,12 +255,12 @@ export function Settings() {
           <CardDescription>{t("settings.tokenCardDesc")}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex items-center justify-between rounded-md border bg-muted/30 p-3">
-            <div className="text-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/30 p-3">
+            <div className="min-w-0 text-sm">
               <span className="text-muted-foreground">{t("settings.current")}</span>
-              <span className="font-mono">{config.token_preview || t("common.dash")}</span>
+              <span className="font-mono break-all">{config.token_preview || t("common.dash")}</span>
             </div>
-            <Badge variant={config.token_set ? "success" : "destructive"}>
+            <Badge variant={config.token_set ? "success" : "destructive"} className="shrink-0">
               {config.token_set ? t("settings.configured") : t("settings.missing")}
             </Badge>
           </div>
@@ -272,8 +273,13 @@ export function Settings() {
             </Alert>
           )}
           <Separator />
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={rotate} disabled={busy}>
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            <Button
+              variant="outline"
+              onClick={rotate}
+              disabled={busy}
+              className="w-full sm:w-auto"
+            >
               <RefreshCw className="mr-2 h-4 w-4" /> {t("settings.generateNew")}
             </Button>
             {token && (
@@ -284,10 +290,15 @@ export function Settings() {
                     navigator.clipboard.writeText(token);
                     toast.success(t("common.copied"));
                   }}
+                  className="w-full sm:w-auto"
                 >
                   <ClipboardCopy className="mr-2 h-4 w-4" /> {t("common.copy")}
                 </Button>
-                <Button onClick={applyToken} disabled={busy}>
+                <Button
+                  onClick={applyToken}
+                  disabled={busy}
+                  className="w-full sm:w-auto"
+                >
                   {t("settings.applyToken")}
                 </Button>
               </>
