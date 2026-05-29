@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -26,6 +27,7 @@ import { formatDuration, formatTimestamp } from "@/lib/utils";
 type Filter = "all" | "success" | "error";
 
 export function Jobs() {
+  const { t } = useTranslation();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
   const [loading, setLoading] = useState(true);
@@ -37,7 +39,7 @@ export function Jobs() {
       const result = await endpoints.jobs({ limit: 200, ...params });
       setJobs(result.jobs);
     } catch {
-      toast.error("Could not load jobs");
+      toast.error(t("jobs.loadFailed"));
     } finally {
       setLoading(false);
     }
@@ -51,55 +53,62 @@ export function Jobs() {
   return (
     <div className="space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Job history</h1>
-          <p className="text-sm text-muted-foreground">
-            Last 200 print jobs recorded in the local SQLite store.
-          </p>
+        <div className="min-w-0">
+          <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">{t("jobs.title")}</h1>
+          <p className="text-sm text-muted-foreground">{t("jobs.description")}</p>
         </div>
-        <Button variant="outline" onClick={load}>
-          <RefreshCw className="mr-2 h-4 w-4" /> Refresh
+        <Button variant="outline" onClick={load} className="w-full sm:w-auto">
+          <RefreshCw className="mr-2 h-4 w-4" /> {t("common.refresh")}
         </Button>
       </header>
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0">
-          <div>
-            <CardTitle>Print jobs</CardTitle>
-            <CardDescription>
-              Newest first. Source includes client IP and a truncated User-Agent.
-            </CardDescription>
+        <CardHeader className="flex flex-col gap-3 space-y-0 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <CardTitle>{t("jobs.tableTitle")}</CardTitle>
+            <CardDescription>{t("jobs.tableDesc")}</CardDescription>
           </div>
-          <Tabs value={filter} onValueChange={(v) => setFilter(v as Filter)}>
-            <TabsList>
-              <TabsTrigger value="all">All</TabsTrigger>
-              <TabsTrigger value="success">Success</TabsTrigger>
-              <TabsTrigger value="error">Error</TabsTrigger>
+          <Tabs
+            value={filter}
+            onValueChange={(v) => setFilter(v as Filter)}
+            className="w-full sm:w-auto"
+          >
+            <TabsList className="w-full sm:w-auto">
+              <TabsTrigger value="all" className="flex-1 sm:flex-none">
+                {t("jobs.filterAll")}
+              </TabsTrigger>
+              <TabsTrigger value="success" className="flex-1 sm:flex-none">
+                {t("jobs.filterSuccess")}
+              </TabsTrigger>
+              <TabsTrigger value="error" className="flex-1 sm:flex-none">
+                {t("jobs.filterError")}
+              </TabsTrigger>
             </TabsList>
           </Tabs>
         </CardHeader>
-        <CardContent>
+        <CardContent className="px-0 sm:px-6">
           {loading ? (
-            <div className="space-y-2">
+            <div className="space-y-2 px-6 sm:px-0">
               {Array.from({ length: 8 }).map((_, i) => (
                 <Skeleton key={i} className="h-10 w-full" />
               ))}
             </div>
           ) : jobs.length === 0 ? (
             <p className="py-12 text-center text-sm text-muted-foreground">
-              No jobs to show.
+              {t("jobs.empty")}
             </p>
           ) : (
+            <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>When</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Duration</TableHead>
-                  <TableHead>Attempts</TableHead>
-                  <TableHead>Source</TableHead>
-                  <TableHead>Detail</TableHead>
+                  <TableHead>{t("jobs.colWhen")}</TableHead>
+                  <TableHead>{t("jobs.colType")}</TableHead>
+                  <TableHead>{t("jobs.colStatus")}</TableHead>
+                  <TableHead>{t("jobs.colDuration")}</TableHead>
+                  <TableHead>{t("jobs.colAttempts")}</TableHead>
+                  <TableHead>{t("jobs.colSource")}</TableHead>
+                  <TableHead>{t("jobs.colDetail")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -111,23 +120,24 @@ export function Jobs() {
                     <TableCell>{j.job_type}</TableCell>
                     <TableCell>
                       {j.status === "success" ? (
-                        <Badge variant="success">success</Badge>
+                        <Badge variant="success">{t("jobs.statusSuccess")}</Badge>
                       ) : (
-                        <Badge variant="destructive">error</Badge>
+                        <Badge variant="destructive">{t("jobs.statusError")}</Badge>
                       )}
                     </TableCell>
                     <TableCell>{formatDuration(j.duration_ms)}</TableCell>
-                    <TableCell>{j.attempts ?? "—"}</TableCell>
+                    <TableCell>{j.attempts ?? t("common.dash")}</TableCell>
                     <TableCell className="font-mono text-xs text-muted-foreground">
-                      {j.source ?? "—"}
+                      {j.source ?? t("common.dash")}
                     </TableCell>
                     <TableCell className="max-w-xs font-mono text-xs text-muted-foreground">
-                      {j.error ?? j.payload_summary ?? "—"}
+                      {j.error ?? j.payload_summary ?? t("common.dash")}
                     </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
+            </div>
           )}
         </CardContent>
       </Card>

@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import {
   Activity,
   BarChart3,
+  Brush,
+  Home,
   LayoutDashboard,
   ListChecks,
   LogOut,
@@ -12,24 +15,41 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { AppFooter } from "@/components/AppFooter";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { cn } from "@/lib/utils";
-import { clearToken, endpoints, getToken, HealthResponse } from "@/lib/api";
+import { endpoints, HealthResponse } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
-const nav = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/analytics", label: "Analytics", icon: BarChart3 },
-  { to: "/jobs", label: "Jobs", icon: ListChecks },
-  { to: "/test", label: "Test print", icon: TestTube2 },
-  { to: "/settings", label: "Settings", icon: SettingsIcon },
-];
+type NavItem = {
+  to: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  end?: boolean;
+  adminOnly?: boolean;
+};
 
 export function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { t } = useTranslation();
+  const { me, loading: authLoading, signOut } = useAuth();
   const [health, setHealth] = useState<HealthResponse | null>(null);
 
+  const nav: NavItem[] = [
+    { to: "/admin", label: t("nav.dashboard"), icon: LayoutDashboard, end: true },
+    { to: "/admin/analytics", label: t("nav.analytics"), icon: BarChart3, adminOnly: true },
+    { to: "/admin/jobs", label: t("nav.jobs"), icon: ListChecks },
+    { to: "/admin/draw", label: t("nav.draw"), icon: Brush },
+    { to: "/admin/test", label: t("nav.testPrint"), icon: TestTube2, adminOnly: true },
+    { to: "/admin/settings", label: t("nav.settings"), icon: SettingsIcon, adminOnly: true },
+  ];
+  const visibleNav = nav.filter((item) => !item.adminOnly || me?.role === "admin");
+
   useEffect(() => {
-    if (!getToken()) {
+    if (authLoading) return;
+    if (!me) {
       navigate("/login", { replace: true });
       return;
     }
@@ -45,92 +65,207 @@ export function Layout() {
       cancelled = true;
       clearInterval(id);
     };
-  }, [navigate, location.pathname]);
+  }, [navigate, location.pathname, authLoading, me]);
 
   return (
-    <div className="flex min-h-screen bg-muted/30">
-      <aside className="hidden w-60 flex-col border-r bg-background md:flex">
-        <div className="flex h-16 items-center gap-2 border-b px-6">
-          <Printer className="h-5 w-5 text-primary" />
-          <span className="text-lg font-semibold tracking-tight">printcast</span>
+    <div className="app-shell-bg flex min-h-screen">
+      <aside className="hidden w-64 flex-col border-r border-border/60 bg-card/40 backdrop-blur md:flex">
+        <div className="flex h-16 items-center gap-2.5 border-b border-border/60 px-5">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-info text-primary-foreground shadow-soft">
+            <Printer className="h-4 w-4" />
+          </div>
+          <div className="flex flex-col leading-tight">
+            <span className="text-sm font-semibold tracking-tight">printcast</span>
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              print bridge
+            </span>
+          </div>
         </div>
-        <nav className="flex-1 space-y-1 p-3">
-          {nav.map((item) => (
+        <nav className="flex-1 space-y-1 px-3 py-4">
+          {visibleNav.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
-              end={item.to === "/"}
+              end={item.end}
               className={({ isActive }) =>
                 cn(
-                  "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                  "group relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all",
                   isActive
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                    ? "bg-primary/10 text-primary shadow-soft"
+                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
                 )
               }
             >
-              <item.icon className="h-4 w-4" />
-              {item.label}
+              {({ isActive }) => (
+                <>
+                  {isActive && (
+                    <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-r-full bg-primary" />
+                  )}
+                  <item.icon
+                    className={cn(
+                      "h-4 w-4 transition-colors",
+                      isActive ? "text-primary" : "text-muted-foreground group-hover:text-foreground"
+                    )}
+                  />
+                  {item.label}
+                </>
+              )}
             </NavLink>
           ))}
         </nav>
-        <div className="border-t p-3">
+        <div className="space-y-2 border-t border-border/60 p-3">
+          {me ? (
+            <div
+              className="truncate rounded-lg border border-border/60 bg-background/50 px-3 py-2 text-xs text-muted-foreground"
+              title={me.email}
+            >
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground/80">
+                {me.role === "admin" ? "admin" : "user"}
+              </div>
+              <div className="truncate text-foreground">{me.email}</div>
+            </div>
+          ) : null}
+          <PrinterStatusCard health={health} />
+          <LanguageSwitcher className="w-full" />
           <Button
             variant="ghost"
             size="sm"
-            className="w-full justify-start"
-            onClick={() => {
-              clearToken();
-              navigate("/login", { replace: true });
+            className="w-full justify-start text-muted-foreground hover:text-foreground"
+            onClick={() => navigate("/")}
+          >
+            <Home className="mr-2 h-4 w-4" /> {t("nav.publicPage")}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full justify-start text-muted-foreground hover:text-foreground"
+            onClick={async () => {
+              await signOut();
+              navigate("/", { replace: true });
             }}
           >
-            <LogOut className="mr-2 h-4 w-4" /> Sign out
+            <LogOut className="mr-2 h-4 w-4" /> {t("common.signOut")}
           </Button>
         </div>
       </aside>
 
-      <div className="flex flex-1 flex-col">
-        <header className="flex h-16 items-center justify-between border-b bg-background px-6">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Activity className="h-4 w-4" />
-            <span>Printer</span>
-            <span className="font-mono text-foreground">
-              {health?.printer?.host || "unknown"}:{health?.printer?.port || "—"}
-            </span>
-            {health ? (
-              health.printer.reachable ? (
-                <Badge variant="success">reachable</Badge>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="sticky top-0 z-10 flex h-14 items-center justify-between gap-2 border-b border-border/60 bg-background/70 px-3 backdrop-blur md:h-16 md:px-8">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex min-w-0 items-center gap-2 md:hidden">
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-primary to-info text-primary-foreground">
+                <Printer className="h-3.5 w-3.5" />
+              </div>
+              <span className="truncate text-sm font-semibold">printcast</span>
+              {health && (
+                <span
+                  className={cn(
+                    "h-2 w-2 shrink-0 rounded-full",
+                    health.printer.reachable ? "bg-success" : "bg-destructive"
+                  )}
+                  aria-label={
+                    health.printer.reachable
+                      ? t("header.reachable")
+                      : t("header.unreachable")
+                  }
+                />
+              )}
+            </div>
+            <div className="hidden items-center gap-2 rounded-full border border-border/60 bg-background/60 px-3 py-1.5 text-xs md:flex">
+              <Activity className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="text-muted-foreground">{t("header.printer")}</span>
+              <span className="font-mono text-foreground">
+                {health?.printer?.host || t("header.unknown")}:
+                {health?.printer?.port || t("common.dash")}
+              </span>
+              {health ? (
+                health.printer.reachable ? (
+                  <Badge variant="success" className="ml-1">
+                    <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-current" />
+                    {t("header.reachable")}
+                  </Badge>
+                ) : (
+                  <Badge variant="destructive" className="ml-1">
+                    {t("header.unreachable")}
+                  </Badge>
+                )
               ) : (
-                <Badge variant="destructive">unreachable</Badge>
-              )
-            ) : (
-              <Badge variant="outline">…</Badge>
-            )}
+                <Badge variant="outline" className="ml-1">
+                  …
+                </Badge>
+              )}
+            </div>
           </div>
-          <nav className="flex gap-1 md:hidden">
-            {nav.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.to === "/"}
-                className={({ isActive }) =>
-                  cn(
-                    "rounded-md p-2",
-                    isActive
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-accent"
-                  )
-                }
+          <div className="flex shrink-0 items-center gap-1 md:gap-2">
+            <nav className="-mx-1 flex max-w-[60vw] gap-0.5 overflow-x-auto px-1 md:hidden">
+              {visibleNav.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={item.end}
+                  aria-label={item.label}
+                  title={item.label}
+                  className={({ isActive }) =>
+                    cn(
+                      "flex h-9 w-9 shrink-0 items-center justify-center rounded-md transition-colors",
+                      isActive
+                        ? "bg-primary/10 text-primary"
+                        : "text-muted-foreground hover:bg-accent/50"
+                    )
+                  }
+                >
+                  <item.icon className="h-4 w-4" />
+                </NavLink>
+              ))}
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label={t("common.signOut")}
+                title={t("common.signOut")}
+                className="h-9 w-9 shrink-0 text-muted-foreground"
+                onClick={async () => {
+                  await signOut();
+                  navigate("/", { replace: true });
+                }}
               >
-                <item.icon className="h-4 w-4" />
-              </NavLink>
-            ))}
-          </nav>
+                <LogOut className="h-4 w-4" />
+              </Button>
+            </nav>
+            <ThemeToggle />
+          </div>
         </header>
-        <main className="flex-1 p-6">
-          <Outlet />
+        <main className="flex-1 px-4 py-6 md:px-8 md:py-8">
+          <div className="mx-auto w-full max-w-7xl animate-fade-in">
+            <Outlet />
+          </div>
         </main>
+        <AppFooter />
       </div>
+    </div>
+  );
+}
+
+function PrinterStatusCard({ health }: { health: HealthResponse | null }) {
+  const reachable = health?.printer.reachable;
+  return (
+    <div className="rounded-lg border border-border/60 bg-background/50 px-3 py-2.5">
+      <div className="mb-1 flex items-center justify-between">
+        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+          Printer
+        </span>
+        <span
+          className={cn(
+            "flex h-2 w-2 rounded-full",
+            reachable === true && "bg-success shadow-[0_0_0_3px_hsl(var(--success-soft))]",
+            reachable === false && "bg-destructive",
+            reachable == null && "bg-muted-foreground/40"
+          )}
+        />
+      </div>
+      <p className="truncate font-mono text-xs">
+        {health?.printer?.host || "unknown"}
+        <span className="text-muted-foreground">:{health?.printer?.port || "—"}</span>
+      </p>
     </div>
   );
 }

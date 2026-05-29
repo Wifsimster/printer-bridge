@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import {
   Activity,
   AlertTriangle,
@@ -25,6 +26,7 @@ import { AnalyticsSummary, endpoints, HealthResponse } from "@/lib/api";
 import { formatDuration, timeAgo } from "@/lib/utils";
 
 export function Dashboard() {
+  const { t } = useTranslation();
   const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -39,10 +41,23 @@ export function Dashboard() {
       setSummary(s);
       setHealth(h);
     } catch (err) {
-      toast.error("Failed to load dashboard");
+      toast.error(t("dashboard.loadFailed"));
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function runTestPrint() {
+    setPrinting(true);
+    try {
+      await endpoints.printTest();
+      toast.success(t("dashboard.testJobSent"));
+      refresh();
+    } catch (err) {
+      toast.error(t("dashboard.printFailed", { message: (err as Error).message }));
+    } finally {
+      setPrinting(false);
     }
   }
 
@@ -50,20 +65,8 @@ export function Dashboard() {
     refresh();
     const id = setInterval(refresh, 10000);
     return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  async function runTestPrint() {
-    setPrinting(true);
-    try {
-      await endpoints.printTest();
-      toast.success("Test job sent");
-      refresh();
-    } catch (err) {
-      toast.error("Print failed: " + (err as Error).message);
-    } finally {
-      setPrinting(false);
-    }
-  }
 
   if (loading) {
     return (
@@ -81,25 +84,25 @@ export function Dashboard() {
   return (
     <div className="space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Supervision</h1>
-          <p className="text-sm text-muted-foreground">
-            Live state of the print bridge and the connected thermal printer.
-          </p>
+        <div className="min-w-0">
+          <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">{t("dashboard.title")}</h1>
+          <p className="text-sm text-muted-foreground">{t("dashboard.description")}</p>
         </div>
-        <Button onClick={runTestPrint} disabled={printing}>
+        <Button onClick={runTestPrint} disabled={printing} className="w-full sm:w-auto">
           <Zap className="mr-2 h-4 w-4" />
-          {printing ? "Sending…" : "Run test print"}
+          {printing ? t("dashboard.sending") : t("dashboard.runTestPrint")}
         </Button>
       </header>
 
       {health && !health.printer.reachable && (
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>Printer unreachable</AlertTitle>
+          <AlertTitle>{t("dashboard.printerUnreachableTitle")}</AlertTitle>
           <AlertDescription>
-            TCP {health.printer.host}:{health.printer.port} did not answer. Check the
-            VLAN/firewall path and that the printer is powered on.
+            {t("dashboard.printerUnreachableDesc", {
+              host: health.printer.host,
+              port: health.printer.port,
+            })}
           </AlertDescription>
         </Alert>
       )}
@@ -107,44 +110,41 @@ export function Dashboard() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Stat
           icon={<Printer className="h-4 w-4" />}
-          label="Printer"
+          label={t("dashboard.statPrinter")}
           value={
             health?.printer.reachable ? (
-              <Badge variant="success">reachable</Badge>
+              <Badge variant="success">{t("header.reachable")}</Badge>
             ) : (
-              <Badge variant="destructive">unreachable</Badge>
+              <Badge variant="destructive">{t("header.unreachable")}</Badge>
             )
           }
-          hint={`${health?.printer.host ?? "—"}:${health?.printer.port ?? "—"}`}
+          hint={`${health?.printer.host ?? t("common.dash")}:${health?.printer.port ?? t("common.dash")}`}
         />
         <Stat
           icon={<TrendingUp className="h-4 w-4" />}
-          label="Success rate"
+          label={t("dashboard.statSuccessRate")}
           value={`${totals.success_rate.toFixed(1)}%`}
-          hint={`${totals.success}/${totals.all} jobs total`}
+          hint={t("dashboard.statSuccessRateHint", { success: totals.success, all: totals.all })}
         />
         <Stat
           icon={<Activity className="h-4 w-4" />}
-          label="Last 24 h"
+          label={t("dashboard.statLast24h")}
           value={`${last24h.success + last24h.error}`}
-          hint={`${last24h.success} ok · ${last24h.error} errors`}
+          hint={t("dashboard.statLast24hHint", { success: last24h.success, error: last24h.error })}
         />
         <Stat
           icon={<Clock className="h-4 w-4" />}
-          label="Avg duration"
+          label={t("dashboard.statAvgDuration")}
           value={formatDuration(summary?.avg_duration_ms_7d ?? 0)}
-          hint="Last 7 days, successful jobs"
+          hint={t("dashboard.statAvgDurationHint")}
         />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle>Last successful job</CardTitle>
-            <CardDescription>
-              Heartbeat from the bridge. Stale &gt; 24 h usually means callers stopped,
-              not that the printer is broken.
-            </CardDescription>
+            <CardTitle>{t("dashboard.lastJobTitle")}</CardTitle>
+            <CardDescription>{t("dashboard.lastJobDesc")}</CardDescription>
           </CardHeader>
           <CardContent>
             {summary?.last_job ? (
@@ -164,30 +164,28 @@ export function Dashboard() {
                 )}
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground">
-                No jobs recorded yet — send something to /print/* or run a test print.
-              </p>
+              <p className="text-sm text-muted-foreground">{t("dashboard.noJobsYet")}</p>
             )}
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle>Quick actions</CardTitle>
-            <CardDescription>Common operator tasks.</CardDescription>
+            <CardTitle>{t("dashboard.quickActionsTitle")}</CardTitle>
+            <CardDescription>{t("dashboard.quickActionsDesc")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
             <Button variant="outline" className="w-full justify-start" asChild>
-              <Link to="/test">Send a custom print</Link>
+              <Link to="/admin/test">{t("dashboard.actionCustomPrint")}</Link>
             </Button>
             <Button variant="outline" className="w-full justify-start" asChild>
-              <Link to="/analytics">Open analytics</Link>
+              <Link to="/admin/analytics">{t("dashboard.actionOpenAnalytics")}</Link>
             </Button>
             <Button variant="outline" className="w-full justify-start" asChild>
-              <Link to="/jobs">Inspect job history</Link>
+              <Link to="/admin/jobs">{t("dashboard.actionInspectJobs")}</Link>
             </Button>
             <Button variant="outline" className="w-full justify-start" asChild>
-              <Link to="/settings">Edit configuration</Link>
+              <Link to="/admin/settings">{t("dashboard.actionEditConfig")}</Link>
             </Button>
           </CardContent>
         </Card>
@@ -195,10 +193,8 @@ export function Dashboard() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Recent errors</CardTitle>
-          <CardDescription>
-            Last 10 failed jobs. Drill into the Jobs tab for more.
-          </CardDescription>
+          <CardTitle>{t("dashboard.recentErrorsTitle")}</CardTitle>
+          <CardDescription>{t("dashboard.recentErrorsDesc")}</CardDescription>
         </CardHeader>
         <CardContent>
           {summary?.recent_errors.length ? (
@@ -221,7 +217,7 @@ export function Dashboard() {
               ))}
             </ul>
           ) : (
-            <p className="text-sm text-muted-foreground">No errors recorded — nice.</p>
+            <p className="text-sm text-muted-foreground">{t("dashboard.noErrors")}</p>
           )}
         </CardContent>
       </Card>
