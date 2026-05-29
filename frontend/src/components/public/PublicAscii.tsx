@@ -4,10 +4,12 @@ import { Loader2, Send } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ApiError, endpoints } from "@/lib/api";
+import { usePublicUsername } from "@/lib/publicUser";
 import { ASCII_GALLERY, asciiSceneToText, AsciiScene } from "@/lib/ascii";
 
 export function PublicAscii() {
   const { t } = useTranslation();
+  const { username } = usePublicUsername();
   const [selectedId, setSelectedId] = useState<string>(ASCII_GALLERY[0].id);
   const [busy, setBusy] = useState(false);
 
@@ -18,12 +20,17 @@ export function PublicAscii() {
   );
 
   async function run() {
+    if (!username.trim()) {
+      toast.error(t("public.usernameRequired"));
+      return;
+    }
     setBusy(true);
     try {
       await endpoints.printText({
         text: asciiSceneToText(selected),
         align: "center",
         bold: false,
+        username,
       });
       toast.success(t("public.ascii.printed"));
     } catch (err) {

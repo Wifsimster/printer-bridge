@@ -1,7 +1,7 @@
 import { PointerEvent, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Eraser, Loader2, Printer, Send, ShieldCheck } from "lucide-react";
+import { Dices, Eraser, Loader2, Printer, Send, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import {
   Card,
@@ -17,12 +17,18 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { ApiError, endpoints } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import {
+  PublicUsernameProvider,
+  usePublicUsername,
+  USERNAME_MAX_LENGTH,
+} from "@/lib/publicUser";
 import { cn } from "@/lib/utils";
 import { AppFooter } from "@/components/AppFooter";
 import { PublicQR } from "@/components/public/PublicQR";
@@ -39,6 +45,7 @@ export function Public() {
   const signedIn = Boolean(me);
 
   return (
+    <PublicUsernameProvider>
     <div className="app-shell-bg flex min-h-screen flex-col">
       <header className="sticky top-0 z-10 flex h-14 items-center justify-between gap-2 border-b border-border/60 bg-background/70 px-3 backdrop-blur md:h-16 md:px-6">
         <div className="flex min-w-0 items-center gap-2.5">
@@ -70,6 +77,8 @@ export function Public() {
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{t("public.title")}</h1>
           <p className="text-sm text-muted-foreground">{t("public.description")}</p>
         </div>
+
+        <UsernameField />
 
         <Card className="shadow-medium">
           <CardHeader>
@@ -107,11 +116,47 @@ export function Public() {
 
       <AppFooter />
     </div>
+    </PublicUsernameProvider>
+  );
+}
+
+function UsernameField() {
+  const { t } = useTranslation();
+  const { username, setUsername, randomize } = usePublicUsername();
+  return (
+    <Card className="shadow-medium">
+      <CardHeader>
+        <CardTitle>{t("public.usernameTitle")}</CardTitle>
+        <CardDescription>{t("public.usernameDesc")}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Input
+            id="public-username"
+            value={username}
+            maxLength={USERNAME_MAX_LENGTH}
+            placeholder={t("public.usernamePlaceholder")}
+            onChange={(e) => setUsername(e.target.value)}
+            className="flex-1"
+          />
+          <Button
+            type="button"
+            variant="outline"
+            onClick={randomize}
+            className="w-full sm:w-auto"
+          >
+            <Dices className="mr-2 h-4 w-4" />
+            {t("public.usernameRandom")}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
 function PublicText() {
   const { t } = useTranslation();
+  const { username } = usePublicUsername();
   const [text, setText] = useState("");
   const [align, setAlign] = useState<"left" | "center" | "right">("left");
   const [bold, setBold] = useState(false);
@@ -119,9 +164,13 @@ function PublicText() {
 
   async function run() {
     if (!text.trim()) return;
+    if (!username.trim()) {
+      toast.error(t("public.usernameRequired"));
+      return;
+    }
     setBusy(true);
     try {
-      await endpoints.printText({ text, align, bold });
+      await endpoints.printText({ text, align, bold, username });
       toast.success(t("public.textPrinted"));
       setText("");
     } catch (err) {
@@ -194,6 +243,7 @@ function PublicText() {
 
 function PublicDraw() {
   const { t } = useTranslation();
+  const { username } = usePublicUsername();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawing = useRef(false);
   const lastPoint = useRef<{ x: number; y: number } | null>(null);
@@ -265,10 +315,14 @@ function PublicDraw() {
   async function run() {
     const canvas = canvasRef.current;
     if (!canvas || !hasInk) return;
+    if (!username.trim()) {
+      toast.error(t("public.usernameRequired"));
+      return;
+    }
     setBusy(true);
     try {
       const dataUrl = canvas.toDataURL("image/png");
-      await endpoints.printImage({ image: dataUrl, align: "center" });
+      await endpoints.printImage({ image: dataUrl, align: "center", username });
       toast.success(t("public.drawingPrinted"));
       clear();
     } catch (err) {

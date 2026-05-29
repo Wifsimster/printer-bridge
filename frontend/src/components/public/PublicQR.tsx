@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ApiError, endpoints } from "@/lib/api";
+import { usePublicUsername } from "@/lib/publicUser";
 
 const QR_PIXEL_SIZE = 384;
 
@@ -57,6 +58,7 @@ function QrPreview({ dataUrl }: { dataUrl: string | null }) {
 
 function UrlForm() {
   const { t } = useTranslation();
+  const { username } = usePublicUsername();
   const [text, setText] = useState("");
   const [preview, setPreview] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -80,9 +82,13 @@ function UrlForm() {
 
   async function run() {
     if (!preview) return;
+    if (!username.trim()) {
+      toast.error(t("public.usernameRequired"));
+      return;
+    }
     setBusy(true);
     try {
-      await endpoints.printImage({ image: preview, align: "center" });
+      await endpoints.printImage({ image: preview, align: "center", username });
       toast.success(t("public.qr.printed"));
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : t("public.failed"));
@@ -121,6 +127,7 @@ function UrlForm() {
 
 function WifiForm() {
   const { t } = useTranslation();
+  const { username } = usePublicUsername();
   const [ssid, setSsid] = useState("");
   const [password, setPassword] = useState("");
   const [auth, setAuth] = useState<WifiAuth>("WPA");
@@ -147,9 +154,13 @@ function WifiForm() {
 
   async function run() {
     if (!preview) return;
+    if (!username.trim()) {
+      toast.error(t("public.usernameRequired"));
+      return;
+    }
     setBusy(true);
     try {
-      await endpoints.printImage({ image: preview, align: "center" });
+      await endpoints.printImage({ image: preview, align: "center", username });
       toast.success(t("public.qr.printed"));
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : t("public.failed"));

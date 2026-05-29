@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { ApiError, endpoints } from "@/lib/api";
+import { usePublicUsername } from "@/lib/publicUser";
 import {
   FORTUNE_CATEGORIES,
   FortuneCategory,
@@ -13,6 +14,7 @@ import {
 
 export function PublicFortune() {
   const { t, i18n } = useTranslation();
+  const { username } = usePublicUsername();
   const [category, setCategory] = useState<FortuneCategory>("motivational");
   const [current, setCurrent] = useState<string>(() =>
     pickFortune("motivational", i18n.language)
@@ -37,12 +39,17 @@ export function PublicFortune() {
 
   async function run() {
     if (!current) return;
+    if (!username.trim()) {
+      toast.error(t("public.usernameRequired"));
+      return;
+    }
     setBusy(true);
     try {
       await endpoints.printText({
         text: current,
         align: "left",
         bold: false,
+        username,
       });
       toast.success(t("public.fortune.printed"));
     } catch (err) {

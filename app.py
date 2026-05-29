@@ -405,6 +405,9 @@ class TextJob(BaseModel):
     align: Align = "left"
     bold: bool = False
     underline: bool = False
+    # Free-text sender handle from the public page; printed as a byline and
+    # recorded as the job source so the owner knows who sent each print.
+    username: Optional[str] = Field(default=None, max_length=32)
     cut: bool = True
 
 
@@ -424,6 +427,7 @@ class ImageJob(BaseModel):
     image: str
     align: Align = "center"
     caption: Optional[str] = None
+    username: Optional[str] = Field(default=None, max_length=32)
     cut: bool = True
 
 
@@ -469,8 +473,19 @@ class TestConnectionPayload(BaseModel):
 # --------------------------------------------------------------------------
 # Renderers
 # --------------------------------------------------------------------------
+def render_byline(p: Network, username: Optional[str]) -> None:
+    """Print a centered '— @handle —' byline when a public username is set."""
+    handle = (username or "").strip()
+    if not handle:
+        return
+    p.set(align="center", bold=True)
+    line(p, f"— @{handle} —")
+    reset(p)
+
+
 def render_text(p: Network, job: TextJob) -> None:
     reset(p)
+    render_byline(p, job.username)
     p.set(align=job.align, bold=job.bold, underline=1 if job.underline else 0)
     p.text(job.text if job.text.endswith("\n") else job.text + "\n")
     finish(p, job.cut)
@@ -511,8 +526,10 @@ def render_receipt(p: Network, job: ReceiptJob) -> None:
 
 
 def render_image(p: Network, img: Image.Image, align: str,
-                 caption: Optional[str], cut: bool) -> None:
+                 caption: Optional[str], cut: bool,
+                 username: Optional[str] = None) -> None:
     reset(p)
+    render_byline(p, username)
     p.set(align=align)
     p.image(img, center=(align == "center"))
     if caption:
@@ -673,6 +690,15 @@ def _request_source(request: Request) -> Optional[str]:
     return f"{_client_ip(request)} {ua[:60]}".strip() or None
 
 
+def _print_source(request: Request, username: Optional[str] = None) -> Optional[str]:
+    """Job source, prefixed with the public '@handle' when one was supplied."""
+    handle = (username or "").strip()
+    base = _request_source(request)
+    if handle:
+        return f"@{handle} · {base}" if base else f"@{handle}"
+    return base
+
+
 # Per-IP sliding-window rate limiter for /print* endpoints. In-memory and
 # thread-safe; a single printer instance does not need anything heavier.
 RATE_LIMIT_LOCK = threading.Lock()
@@ -801,7 +827,7 @@ def metrics() -> PlainTextResponse:
 def print_text(job: TextJob, request: Request,
                _rl: None = Depends(enforce_rate_limit)) -> dict:
     run_print_job("text", lambda p: render_text(p, job),
-                  source=_request_source(request),
+                  source=_print_source(request, job.username),
                   summary=_summarize_payload(job))
     return {"status": "printed", "job": "text"}
 
@@ -825,8 +851,9 @@ def print_image(job: ImageJob, request: Request,
         raise HTTPException(status_code=400,
                             detail=f"could not load image: {exc}")
     run_print_job("image",
-                  lambda p: render_image(p, img, job.align, job.caption, job.cut),
-                  source=_request_source(request),
+                  lambda p: render_image(p, img, job.align, job.caption,
+                                         job.cut, job.username),
+                  source=_print_source(request, job.username),
                   summary=_summarize_payload(job))
     return {"status": "printed", "job": "image"}
 
