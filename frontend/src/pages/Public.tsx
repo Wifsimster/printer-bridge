@@ -1,7 +1,7 @@
 import { PointerEvent, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Dices, Eraser, Loader2, Printer, Send, ShieldCheck } from "lucide-react";
+import { ChevronDown, Dices, Eraser, Loader2, Pencil, Printer, Send, ShieldCheck, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   Card,
@@ -27,6 +27,7 @@ import { useAuth } from "@/lib/auth";
 import {
   PublicUsernameProvider,
   usePublicUsername,
+  randomUsername,
   USERNAME_MAX_LENGTH,
 } from "@/lib/publicUser";
 import { cn } from "@/lib/utils";
@@ -39,13 +40,23 @@ const CANVAS_WIDTH = 512;
 const CANVAS_HEIGHT = 384;
 
 export function Public() {
+  return (
+    <PublicUsernameProvider>
+      <PublicShell />
+    </PublicUsernameProvider>
+  );
+}
+
+function PublicShell() {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const { me } = useAuth();
+  const { username } = usePublicUsername();
   const signedIn = Boolean(me);
+  // Mandatory name: open the modal on first visit (nothing saved yet).
+  const [nameOpen, setNameOpen] = useState(() => !username.trim());
 
   return (
-    <PublicUsernameProvider>
     <div className="app-shell-bg flex min-h-screen flex-col">
       <header className="sticky top-0 z-10 flex h-14 items-center justify-between gap-2 border-b border-border/60 bg-background/70 px-3 backdrop-blur md:h-16 md:px-6">
         <div className="flex min-w-0 items-center gap-2.5">
@@ -72,85 +83,196 @@ export function Public() {
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-3xl flex-1 animate-fade-in space-y-6 p-4 md:p-8">
+      <main className="mx-auto w-full max-w-2xl flex-1 animate-fade-in space-y-5 p-4 md:p-8">
         <div className="space-y-1.5">
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{t("public.title")}</h1>
           <p className="text-sm text-muted-foreground">{t("public.description")}</p>
         </div>
 
-        <UsernameField />
+        <PrintingAsBar onChange={() => setNameOpen(true)} />
 
         <Card className="shadow-medium">
-          <CardHeader>
-            <CardTitle>{t("public.composeTitle")}</CardTitle>
-            <CardDescription>{t("public.composeDesc")}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Tabs defaultValue="text">
-              <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1">
-                <TabsTrigger value="text">{t("public.tabText")}</TabsTrigger>
-                <TabsTrigger value="draw">{t("public.tabDraw")}</TabsTrigger>
-                <TabsTrigger value="qr">{t("public.tabQr")}</TabsTrigger>
-                <TabsTrigger value="fortune">{t("public.tabFortune")}</TabsTrigger>
-                <TabsTrigger value="ascii">{t("public.tabAscii")}</TabsTrigger>
-              </TabsList>
-              <TabsContent value="text" className="mt-6">
-                <PublicText />
-              </TabsContent>
-              <TabsContent value="draw" className="mt-6">
-                <PublicDraw />
-              </TabsContent>
-              <TabsContent value="qr" className="mt-6">
-                <PublicQR />
-              </TabsContent>
-              <TabsContent value="fortune" className="mt-6">
-                <PublicFortune />
-              </TabsContent>
-              <TabsContent value="ascii" className="mt-6">
-                <PublicAscii />
-              </TabsContent>
-            </Tabs>
+          <CardContent className="pt-6">
+            <Compose />
           </CardContent>
         </Card>
       </main>
 
       <AppFooter />
+
+      <UsernameModal open={nameOpen} onClose={() => setNameOpen(false)} />
     </div>
-    </PublicUsernameProvider>
   );
 }
 
-function UsernameField() {
+function PrintingAsBar({ onChange }: { onChange: () => void }) {
   const { t } = useTranslation();
-  const { username, setUsername, randomize } = usePublicUsername();
+  const { username } = usePublicUsername();
+  if (!username.trim()) return null;
   return (
-    <Card className="shadow-medium">
-      <CardHeader>
-        <CardTitle>{t("public.usernameTitle")}</CardTitle>
-        <CardDescription>{t("public.usernameDesc")}</CardDescription>
-      </CardHeader>
-      <CardContent>
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/40 px-3 py-2 text-sm">
+      <span className="truncate text-muted-foreground">
+        {t("public.printingAs", { name: username })}
+      </span>
+      <Button variant="ghost" size="sm" onClick={onChange} className="h-7 shrink-0 px-2">
+        <Pencil className="mr-1.5 h-3.5 w-3.5" />
+        {t("public.changeName")}
+      </Button>
+    </div>
+  );
+}
+
+const MORE_TABS = ["qr", "fortune", "ascii"];
+
+function Compose() {
+  const { t } = useTranslation();
+  const [tab, setTab] = useState("text");
+  const [showMore, setShowMore] = useState(false);
+  // Keep the secondary row open whenever one of its tabs is active.
+  const secondaryOpen = showMore || MORE_TABS.includes(tab);
+
+  return (
+    <Tabs value={tab} onValueChange={setTab} className="w-full">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <TabsList className="flex h-auto flex-wrap justify-start gap-1">
+          <TabsTrigger value="text">{t("public.tabText")}</TabsTrigger>
+          <TabsTrigger value="draw">{t("public.tabDraw")}</TabsTrigger>
+        </TabsList>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => setShowMore((s) => !s)}
+          aria-expanded={secondaryOpen}
+          className="h-8"
+        >
+          {t("public.more")}
+          <ChevronDown
+            className={cn("ml-1 h-4 w-4 transition-transform", secondaryOpen && "rotate-180")}
+          />
+        </Button>
+      </div>
+      {secondaryOpen && (
+        <TabsList className="mt-2 flex h-auto flex-wrap justify-start gap-1">
+          <TabsTrigger value="qr">{t("public.tabQr")}</TabsTrigger>
+          <TabsTrigger value="fortune">{t("public.tabFortune")}</TabsTrigger>
+          <TabsTrigger value="ascii">{t("public.tabAscii")}</TabsTrigger>
+        </TabsList>
+      )}
+      <TabsContent value="text" className="mt-6">
+        <PublicText />
+      </TabsContent>
+      <TabsContent value="draw" className="mt-6">
+        <PublicDraw />
+      </TabsContent>
+      <TabsContent value="qr" className="mt-6">
+        <PublicQR />
+      </TabsContent>
+      <TabsContent value="fortune" className="mt-6">
+        <PublicFortune />
+      </TabsContent>
+      <TabsContent value="ascii" className="mt-6">
+        <PublicAscii />
+      </TabsContent>
+    </Tabs>
+  );
+}
+
+function UsernameModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { t } = useTranslation();
+  const { username, setUsername } = usePublicUsername();
+  const [draft, setDraft] = useState("");
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  // Once a name exists the modal is just an editor, so it can be dismissed.
+  const dismissable = Boolean(username.trim());
+
+  useEffect(() => {
+    if (!open) return;
+    // Pre-fill with the current name, or a random suggestion on first visit,
+    // so confirming is a single tap.
+    setDraft(username.trim() || randomUsername());
+    const focusId = window.setTimeout(() => inputRef.current?.focus(), 50);
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape" && dismissable) onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.clearTimeout(focusId);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open, username, dismissable, onClose]);
+
+  if (!open) return null;
+
+  const trimmed = draft.trim();
+  const canConfirm = trimmed.length > 0;
+
+  function confirm() {
+    if (!canConfirm) return;
+    setUsername(trimmed);
+    onClose();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div
+        className="absolute inset-0 bg-background/80 backdrop-blur-sm"
+        onClick={() => dismissable && onClose()}
+      />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="username-modal-title"
+        className="relative z-10 w-full max-w-sm animate-fade-in rounded-xl border border-border/60 bg-card p-6 shadow-strong"
+      >
+        {dismissable && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onClose}
+            className="absolute right-3 top-3 h-8 w-8"
+            aria-label={t("public.close")}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        )}
+        <div className="mb-3 flex items-center gap-2.5">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-info text-primary-foreground shadow-soft">
+            <Printer className="h-4 w-4" />
+          </div>
+          <h2 id="username-modal-title" className="text-lg font-semibold tracking-tight">
+            {t("public.nameModalTitle")}
+          </h2>
+        </div>
+        <p className="mb-4 text-sm text-muted-foreground">{t("public.nameModalDesc")}</p>
         <div className="flex flex-col gap-2 sm:flex-row">
           <Input
-            id="public-username"
-            value={username}
+            ref={inputRef}
+            value={draft}
             maxLength={USERNAME_MAX_LENGTH}
             placeholder={t("public.usernamePlaceholder")}
-            onChange={(e) => setUsername(e.target.value)}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") confirm();
+            }}
             className="flex-1"
           />
           <Button
             type="button"
             variant="outline"
-            onClick={randomize}
-            className="w-full sm:w-auto"
+            onClick={() => setDraft(randomUsername())}
+            className="shrink-0"
+            aria-label={t("public.usernameRandom")}
           >
-            <Dices className="mr-2 h-4 w-4" />
-            {t("public.usernameRandom")}
+            <Dices className="mr-2 h-4 w-4 sm:mr-0" />
+            <span className="sm:hidden">{t("public.usernameRandom")}</span>
           </Button>
         </div>
-      </CardContent>
-    </Card>
+        <Button onClick={confirm} disabled={!canConfirm} className="mt-4 w-full">
+          {t("public.nameModalContinue")}
+        </Button>
+      </div>
+    </div>
   );
 }
 
