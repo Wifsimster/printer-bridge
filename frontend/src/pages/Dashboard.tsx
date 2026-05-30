@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
@@ -27,12 +27,16 @@ import { formatDuration, timeAgo } from "@/lib/utils";
 
 export function Dashboard() {
   const { t } = useTranslation();
-  const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
+  // `undefined` means the first load has not resolved yet; the loading flag is
+  // derived from it during render instead of being stored separately.
+  const [summary, setSummary] = useState<AnalyticsSummary | null | undefined>(
+    undefined
+  );
   const [health, setHealth] = useState<HealthResponse | null>(null);
-  const [loading, setLoading] = useState(true);
   const [printing, setPrinting] = useState(false);
+  const loading = summary === undefined;
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
     try {
       const [s, h] = await Promise.all([
         endpoints.analyticsSummary(),
@@ -43,10 +47,9 @@ export function Dashboard() {
     } catch (err) {
       toast.error(t("dashboard.loadFailed"));
       console.error(err);
-    } finally {
-      setLoading(false);
+      setSummary(null);
     }
-  }
+  }, [t]);
 
   async function runTestPrint() {
     setPrinting(true);
@@ -65,8 +68,7 @@ export function Dashboard() {
     refresh();
     const id = setInterval(refresh, 10000);
     return () => clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [refresh]);
 
   if (loading) {
     return (
@@ -89,14 +91,14 @@ export function Dashboard() {
           <p className="text-sm text-muted-foreground">{t("dashboard.description")}</p>
         </div>
         <Button onClick={runTestPrint} disabled={printing} className="w-full sm:w-auto">
-          <Zap className="mr-2 h-4 w-4" />
+          <Zap className="mr-2 size-4" />
           {printing ? t("dashboard.sending") : t("dashboard.runTestPrint")}
         </Button>
       </header>
 
       {health && !health.printer.reachable && (
         <Alert variant="destructive">
-          <AlertTriangle className="h-4 w-4" />
+          <AlertTriangle className="size-4" />
           <AlertTitle>{t("dashboard.printerUnreachableTitle")}</AlertTitle>
           <AlertDescription>
             {t("dashboard.printerUnreachableDesc", {
@@ -109,7 +111,7 @@ export function Dashboard() {
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Stat
-          icon={<Printer className="h-4 w-4" />}
+          icon={<Printer className="size-4" />}
           label={t("dashboard.statPrinter")}
           value={
             health?.printer.reachable ? (
@@ -121,19 +123,19 @@ export function Dashboard() {
           hint={`${health?.printer.host ?? t("common.dash")}:${health?.printer.port ?? t("common.dash")}`}
         />
         <Stat
-          icon={<TrendingUp className="h-4 w-4" />}
+          icon={<TrendingUp className="size-4" />}
           label={t("dashboard.statSuccessRate")}
           value={`${totals.success_rate.toFixed(1)}%`}
           hint={t("dashboard.statSuccessRateHint", { success: totals.success, all: totals.all })}
         />
         <Stat
-          icon={<Activity className="h-4 w-4" />}
+          icon={<Activity className="size-4" />}
           label={t("dashboard.statLast24h")}
           value={`${last24h.success + last24h.error}`}
           hint={t("dashboard.statLast24hHint", { success: last24h.success, error: last24h.error })}
         />
         <Stat
-          icon={<Clock className="h-4 w-4" />}
+          icon={<Clock className="size-4" />}
           label={t("dashboard.statAvgDuration")}
           value={formatDuration(summary?.avg_duration_ms_7d ?? 0)}
           hint={t("dashboard.statAvgDurationHint")}
@@ -154,13 +156,13 @@ export function Dashboard() {
                     {timeAgo(summary.last_job.ts)}
                   </p>
                   <p className="text-sm text-muted-foreground">
-                    {summary.last_job.job_type} — {summary.last_job.status}
+                    {summary.last_job.job_type}: {summary.last_job.status}
                   </p>
                 </div>
                 {summary.last_job.status === "success" ? (
-                  <CheckCircle2 className="h-10 w-10 text-success" />
+                  <CheckCircle2 className="size-10 text-success" />
                 ) : (
-                  <AlertTriangle className="h-10 w-10 text-destructive" />
+                  <AlertTriangle className="size-10 text-destructive" />
                 )}
               </div>
             ) : (
@@ -238,7 +240,7 @@ function Stat({
 }) {
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+      <CardHeader className="flex flex-row items-center justify-between gap-y-0 pb-2">
         <CardTitle className="text-sm font-medium text-muted-foreground">
           {label}
         </CardTitle>

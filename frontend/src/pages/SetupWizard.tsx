@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
@@ -90,7 +90,7 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
     t("setup.stepDone"),
   ];
 
-  const progress = useMemo(() => ((step + 1) / stepTitles.length) * 100, [step, stepTitles.length]);
+  const progress = ((step + 1) / stepTitles.length) * 100;
 
   function update<K extends keyof Form>(key: K, value: Form[K]) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -129,8 +129,8 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
       <div className="mx-auto max-w-3xl animate-fade-in">
         <header className="mb-6 flex flex-wrap items-center justify-between gap-3 sm:mb-8">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-info text-primary-foreground shadow-medium sm:h-11 sm:w-11">
-              <Printer className="h-5 w-5" />
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-info text-primary-foreground shadow-medium sm:size-11">
+              <Printer className="size-5" />
             </div>
             <div className="min-w-0">
               <h1 className="text-lg font-semibold tracking-tight sm:text-xl">{t("setup.headerTitle")}</h1>
@@ -139,7 +139,7 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
             <div className="flex items-center gap-1">
-              <Globe className="hidden h-4 w-4 text-muted-foreground sm:inline" />
+              <Globe className="hidden size-4 text-muted-foreground sm:inline" />
               <select
                 aria-label={t("common.language")}
                 value={currentLang}
@@ -215,8 +215,8 @@ function Welcome({ onNext }: { onNext: () => void }) {
       <CardContent>
         <ul className="space-y-3 text-sm">
           {items.map((line, idx) => (
-            <li key={idx} className="flex gap-3">
-              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary">
+            <li key={line} className="flex gap-3">
+              <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary">
                 {idx + 1}
               </span>
               <span>{line}</span>
@@ -226,7 +226,7 @@ function Welcome({ onNext }: { onNext: () => void }) {
       </CardContent>
       <CardFooter className="justify-end">
         <Button onClick={onNext}>
-          {t("setup.getStarted")} <ArrowRight className="ml-2 h-4 w-4" />
+          {t("setup.getStarted")} <ArrowRight className="ml-2 size-4" />
         </Button>
       </CardFooter>
     </>
@@ -292,9 +292,9 @@ function PrinterStep({
               className="w-full shrink-0 sm:w-auto"
             >
               {scanning ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <Loader2 className="mr-2 size-4 animate-spin" />
               ) : (
-                <Radar className="mr-2 h-4 w-4" />
+                <Radar className="mr-2 size-4" />
               )}
               {t("setup.scanNetwork")}
             </Button>
@@ -317,11 +317,11 @@ function PrinterStep({
                       </Badge>
                       {c.reachable ? (
                         <Badge variant="success" className="text-[10px]">
-                          <Wifi className="mr-1 h-2.5 w-2.5" /> {t("setup.reachable")}
+                          <Wifi className="mr-1 size-2.5" /> {t("setup.reachable")}
                         </Badge>
                       ) : (
                         <Badge variant="destructive" className="text-[10px]">
-                          <WifiOff className="mr-1 h-2.5 w-2.5" /> {t("setup.unreachable")}
+                          <WifiOff className="mr-1 size-2.5" /> {t("setup.unreachable")}
                         </Badge>
                       )}
                     </div>
@@ -353,7 +353,7 @@ function PrinterStep({
                 title={t("setup.openPrinterWebUI")}
                 className="shrink-0"
               >
-                <ExternalLink className="h-4 w-4" />
+                <ExternalLink className="size-4" />
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">{t("setup.openPrinterWebUIHint")}</p>
@@ -415,10 +415,10 @@ function PrinterStep({
       </CardContent>
       <CardFooter className="flex-wrap justify-between gap-2">
         <Button variant="outline" onClick={onBack}>
-          <ArrowLeft className="mr-2 h-4 w-4" /> {t("common.back")}
+          <ArrowLeft className="mr-2 size-4" /> {t("common.back")}
         </Button>
         <Button onClick={onNext} disabled={!valid}>
-          {t("common.continue")} <ArrowRight className="ml-2 h-4 w-4" />
+          {t("common.continue")} <ArrowRight className="ml-2 size-4" />
         </Button>
       </CardFooter>
     </>
@@ -476,7 +476,7 @@ function AuthStep({
       </CardHeader>
       <CardContent className="space-y-4">
         <Alert>
-          <KeyRound className="h-4 w-4" />
+          <KeyRound className="size-4" />
           <AlertTitle>{t("setup.authAlertTitle")}</AlertTitle>
           <AlertDescription>{t("setup.authAlertDesc")}</AlertDescription>
         </Alert>
@@ -545,7 +545,7 @@ function AuthStep({
               title={t("common.copy")}
               className="shrink-0"
             >
-              <ClipboardCopy className="h-4 w-4" />
+              <ClipboardCopy className="size-4" />
             </Button>
             <Button
               variant="outline"
@@ -554,9 +554,9 @@ function AuthStep({
               className="shrink-0"
             >
               {generating ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <Loader2 className="mr-2 size-4 animate-spin" />
               ) : (
-                <RefreshCw className="mr-2 h-4 w-4" />
+                <RefreshCw className="mr-2 size-4" />
               )}
               {t("setup.generate")}
             </Button>
@@ -566,10 +566,10 @@ function AuthStep({
       </CardContent>
       <CardFooter className="flex-wrap justify-between gap-2">
         <Button variant="outline" onClick={onBack}>
-          <ArrowLeft className="mr-2 h-4 w-4" /> {t("common.back")}
+          <ArrowLeft className="mr-2 size-4" /> {t("common.back")}
         </Button>
         <Button onClick={onNext} disabled={!valid}>
-          {t("common.continue")} <ArrowRight className="ml-2 h-4 w-4" />
+          {t("common.continue")} <ArrowRight className="ml-2 size-4" />
         </Button>
       </CardFooter>
     </>
@@ -586,30 +586,37 @@ function VerifyStep({
   onBack: () => void;
 }) {
   const { t } = useTranslation();
-  const [reachable, setReachable] = useState<boolean | null>(null);
-  const [checking, setChecking] = useState(false);
+  // The probe is one cohesive state machine: "checking" while in flight, then a
+  // reachable flag. `undefined` reachable means the probe hasn't resolved yet.
+  // Grouping avoids both initializing and cascading separate state values.
+  const [probe, setProbe] = useState<{
+    checking: boolean;
+    reachable: boolean | null;
+  }>({ checking: true, reachable: null });
+  const { reachable, checking } = probe;
 
   async function check() {
-    setChecking(true);
+    setProbe({ checking: true, reachable: null });
     try {
       const result = await endpoints.testConnection(
         form.printer_host,
         form.printer_port
       );
-      setReachable(result.reachable);
+      setProbe({ checking: false, reachable: result.reachable });
       if (result.reachable) toast.success(t("setup.printerReachable"));
       else toast.warning(t("setup.printerUnreachableMsg"));
     } catch (err) {
-      setReachable(false);
+      setProbe({ checking: false, reachable: false });
       toast.error(err instanceof ApiError ? err.message : t("setup.checkFailed"));
-    } finally {
-      setChecking(false);
     }
   }
 
+  // Run the initial probe once on mount. Re-probing is driven by the retry
+  // button (`onClick={check}`), not by an effect keyed on form state.
+  const checkRef = useRef(check);
+  checkRef.current = check;
   useEffect(() => {
-    check();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    void checkRef.current();
   }, []);
 
   return (
@@ -630,17 +637,17 @@ function VerifyStep({
             <div className="shrink-0">
               {checking ? (
                 <Badge variant="outline">
-                  <Loader2 className="mr-1 h-3 w-3 animate-spin" /> {t("setup.checking")}
+                  <Loader2 className="mr-1 size-3 animate-spin" /> {t("setup.checking")}
                 </Badge>
               ) : reachable === null ? (
                 <Badge variant="outline">{t("setup.pending")}</Badge>
               ) : reachable ? (
                 <Badge variant="success">
-                  <Wifi className="mr-1 h-3 w-3" /> {t("setup.reachable")}
+                  <Wifi className="mr-1 size-3" /> {t("setup.reachable")}
                 </Badge>
               ) : (
                 <Badge variant="destructive">
-                  <WifiOff className="mr-1 h-3 w-3" /> {t("setup.unreachable")}
+                  <WifiOff className="mr-1 size-3" /> {t("setup.unreachable")}
                 </Badge>
               )}
             </div>
@@ -655,9 +662,9 @@ function VerifyStep({
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={check} disabled={checking}>
             {checking ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <Loader2 className="mr-2 size-4 animate-spin" />
             ) : (
-              <TestTube2 className="mr-2 h-4 w-4" />
+              <TestTube2 className="mr-2 size-4" />
             )}
             {t("setup.rerunProbe")}
           </Button>
@@ -666,17 +673,17 @@ function VerifyStep({
             onClick={() => openPrinterWebUI(form.printer_host)}
             disabled={!form.printer_host.trim()}
           >
-            <ExternalLink className="mr-2 h-4 w-4" />
+            <ExternalLink className="mr-2 size-4" />
             {t("setup.openPrinterWebUI")}
           </Button>
         </div>
       </CardContent>
       <CardFooter className="flex-wrap justify-between gap-2">
         <Button variant="outline" onClick={onBack}>
-          <ArrowLeft className="mr-2 h-4 w-4" /> {t("common.back")}
+          <ArrowLeft className="mr-2 size-4" /> {t("common.back")}
         </Button>
         <Button onClick={onNext}>
-          {t("common.continue")} <ArrowRight className="ml-2 h-4 w-4" />
+          {t("common.continue")} <ArrowRight className="ml-2 size-4" />
         </Button>
       </CardFooter>
     </>
@@ -696,8 +703,8 @@ function DoneStep({
   return (
     <>
       <CardHeader className="space-y-2 text-center">
-        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-success/10">
-          <PartyPopper className="h-6 w-6 text-success" />
+        <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-success/10">
+          <PartyPopper className="size-6 text-success" />
         </div>
         <CardTitle>{t("setup.doneTitle")}</CardTitle>
         <CardDescription>{t("setup.doneDesc")}</CardDescription>
@@ -722,10 +729,10 @@ function DoneStep({
       </CardContent>
       <CardFooter className="flex-wrap justify-between gap-2">
         <Button variant="outline" onClick={onBack}>
-          <ArrowLeft className="mr-2 h-4 w-4" /> {t("common.back")}
+          <ArrowLeft className="mr-2 size-4" /> {t("common.back")}
         </Button>
         <Button onClick={onFinish}>
-          <CheckCircle2 className="mr-2 h-4 w-4" />
+          <CheckCircle2 className="mr-2 size-4" />
           {t("setup.saveOpen")}
         </Button>
       </CardFooter>

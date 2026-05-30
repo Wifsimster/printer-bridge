@@ -15,7 +15,7 @@ export function LanguageSwitcher({
 
   return (
     <div className={cn("flex items-center gap-1", className)}>
-      {showIcon && <Globe className="h-4 w-4 text-muted-foreground" />}
+      {showIcon && <Globe className="size-4 text-muted-foreground" />}
       <select
         aria-label={t("common.language")}
         value={currentLang}

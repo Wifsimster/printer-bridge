@@ -35,6 +35,9 @@ All configuration is through environment variables (see `.env.example`):
 | `PRINTER_TOKEN`      | yes      | —                | Bearer token for `/print*` endpoints                          |
 | `PRINTER_TIMEOUT`    | no       | `20`             | Per-job socket timeout (seconds)                              |
 | `PRINTER_RETRIES`    | no       | `3`              | Attempts per job                                              |
+| `PRINTER_QUEUE_ENABLED` | no    | `true`           | Queue jobs while the printer is offline (see Offline queue)  |
+| `PRINTER_QUEUE_POLL_SECONDS` | no | `30`            | Worker probe interval between flushes (min 5)                |
+| `PRINTER_QUEUE_MAX`  | no       | `500`            | Max pending jobs before submissions get HTTP 503 (min 1)     |
 | `TZ`                 | no       | `Europe/Paris`   | Timezone for printed timestamps                               |
 
 ¹ If `PRINTER_HOST` is unset, the service auto-detects on startup: mDNS first
@@ -105,6 +108,40 @@ npm run dev          # vite on :5173, proxies /api, /print, /health to :8080
 
 Run the Python backend separately (`python app.py`) and Vite will proxy API
 calls to it during development.
+
+## Offline queue
+
+When a print job is submitted while the printer is unreachable, printcast
+persists it to a durable SQLite queue instead of failing. The endpoint returns
+**HTTP 202** with `{"status":"queued","job":...,"queue_depth":N}` rather than a
+`502`. A background worker probes the printer every `PRINTER_QUEUE_POLL_SECONDS`
+and, once it is reachable, flushes the queue in **FIFO** order, printing every
+pending job. A flushed job lands in the normal job history as a `success`.
+
+- **Bad input is never queued.** Validation errors (`422`) and unloadable images
+  (`400`) are rejected before any queue decision.
+- **Genuine errors are never queued.** If the printer is reachable but the job
+  fails, it is recorded as an error and returns `502` — only connectivity
+  failures are queued, which avoids poison-requeue.
+- **`/print/test` and `/print/selftest` are not queued** (diagnostics/canary must
+  not pile up); they behave as before when the printer is offline.
+- **Cap.** At most `PRINTER_QUEUE_MAX` jobs are held; further submissions get
+  HTTP `503 print queue is full`.
+- **Image jobs** are stored as a self-contained base64 PNG data URL at enqueue
+  time, so they stay printable even if the original URL stops resolving.
+- Set `PRINTER_QUEUE_ENABLED=false` to disable queueing (offline submissions
+  then fail with `502` as before).
+
+Admin endpoints (same auth as the other `/api/*` routes):
+
+| Method   | Path                | Purpose                                |
+|----------|---------------------|----------------------------------------|
+| `GET`    | `/api/queue`        | List pending jobs and the queue depth. |
+| `POST`   | `/api/queue/flush`  | Trigger an immediate flush attempt.    |
+| `DELETE` | `/api/queue`        | Clear the whole queue.                 |
+| `DELETE` | `/api/queue/{id}`   | Remove one queued job.                 |
+
+`queue_depth` is also reported on `/health` and the analytics summary.
 
 ## API
 

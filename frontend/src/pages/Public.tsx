@@ -24,12 +24,8 @@ import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { ApiError, endpoints } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import {
-  PublicUsernameProvider,
-  usePublicUsername,
-  randomUsername,
-  USERNAME_MAX_LENGTH,
-} from "@/lib/publicUser";
+import { PublicUsernameProvider, randomUsername } from "@/lib/publicUser";
+import { usePublicUsername, USERNAME_MAX_LENGTH } from "@/lib/publicUsername";
 import { cn } from "@/lib/utils";
 import { AppFooter } from "@/components/AppFooter";
 import { PublicQR } from "@/components/public/PublicQR";
@@ -60,8 +56,8 @@ function PublicShell() {
     <div className="app-shell-bg flex min-h-screen flex-col">
       <header className="sticky top-0 z-10 flex h-14 items-center justify-between gap-2 border-b border-border/60 bg-background/70 px-3 backdrop-blur md:h-16 md:px-6">
         <div className="flex min-w-0 items-center gap-2.5">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-info text-primary-foreground shadow-soft">
-            <Printer className="h-4 w-4" />
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-info text-primary-foreground shadow-soft">
+            <Printer className="size-4" />
           </div>
           <span className="truncate text-base font-semibold tracking-tight">printcast</span>
         </div>
@@ -75,7 +71,7 @@ function PublicShell() {
             className={cn("shrink-0", signedIn && "shadow-soft")}
             aria-label={signedIn ? t("public.adminConsole") : t("public.adminLogin")}
           >
-            <ShieldCheck className="h-4 w-4 sm:mr-2" />
+            <ShieldCheck className="size-4 sm:mr-2" />
             <span className="hidden sm:inline">
               {signedIn ? t("public.adminConsole") : t("public.adminLogin")}
             </span>
@@ -115,7 +111,7 @@ function PrintingAsBar({ onChange }: { onChange: () => void }) {
         {t("public.printingAs", { name: username })}
       </span>
       <Button variant="ghost" size="sm" onClick={onChange} className="h-7 shrink-0 px-2">
-        <Pencil className="mr-1.5 h-3.5 w-3.5" />
+        <Pencil className="mr-1.5 size-3.5" />
         {t("public.changeName")}
       </Button>
     </div>
@@ -148,7 +144,7 @@ function Compose() {
         >
           {t("public.more")}
           <ChevronDown
-            className={cn("ml-1 h-4 w-4 transition-transform", secondaryOpen && "rotate-180")}
+            className={cn("ml-1 size-4 transition-transform", secondaryOpen && "rotate-180")}
           />
         </Button>
       </div>
@@ -230,15 +226,15 @@ function UsernameModal({ open, onClose }: { open: boolean; onClose: () => void }
             variant="ghost"
             size="icon"
             onClick={onClose}
-            className="absolute right-3 top-3 h-8 w-8"
+            className="absolute right-3 top-3 size-8"
             aria-label={t("public.close")}
           >
-            <X className="h-4 w-4" />
+            <X className="size-4" />
           </Button>
         )}
         <div className="mb-3 flex items-center gap-2.5">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-info text-primary-foreground shadow-soft">
-            <Printer className="h-4 w-4" />
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-info text-primary-foreground shadow-soft">
+            <Printer className="size-4" />
           </div>
           <h2 id="username-modal-title" className="text-lg font-semibold tracking-tight">
             {t("public.nameModalTitle")}
@@ -264,7 +260,7 @@ function UsernameModal({ open, onClose }: { open: boolean; onClose: () => void }
             className="shrink-0"
             aria-label={t("public.usernameRandom")}
           >
-            <Dices className="mr-2 h-4 w-4 sm:mr-0" />
+            <Dices className="mr-2 size-4 sm:mr-0" />
             <span className="sm:hidden">{t("public.usernameRandom")}</span>
           </Button>
         </div>
@@ -353,9 +349,9 @@ function PublicText() {
       </div>
       <Button onClick={run} disabled={busy || !text.trim()} className="w-full sm:w-auto">
         {busy ? (
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          <Loader2 className="mr-2 size-4 animate-spin" />
         ) : (
-          <Send className="mr-2 h-4 w-4" />
+          <Send className="mr-2 size-4" />
         )}
         {t("public.print")}
       </Button>
@@ -477,9 +473,9 @@ function PublicDraw() {
           className="w-full sm:w-auto"
         >
           {busy ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            <Loader2 className="mr-2 size-4 animate-spin" />
           ) : (
-            <Send className="mr-2 h-4 w-4" />
+            <Send className="mr-2 size-4" />
           )}
           {t("public.printDrawing")}
         </Button>
@@ -489,7 +485,7 @@ function PublicDraw() {
           disabled={busy}
           className="w-full sm:w-auto"
         >
-          <Eraser className="mr-2 h-4 w-4" /> {t("public.clear")}
+          <Eraser className="mr-2 size-4" /> {t("public.clear")}
         </Button>
       </div>
     </div>

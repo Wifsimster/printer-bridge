@@ -91,6 +91,13 @@ CONFIG: dict[str, Any] = {
     # is not DOS'd through paper/ink even if the bearer token leaks.
     "rate_limit_per_minute": max(0, _int_env("RATE_LIMIT_PER_MINUTE", 10)),
     "rate_limit_per_hour": max(0, _int_env("RATE_LIMIT_PER_HOUR", 100)),
+    # Offline print queue: when the printer is unreachable at submit time, the
+    # job is persisted to SQLite and flushed (FIFO) by a background worker once
+    # the printer comes back. queue_max caps the queue; queue_poll_seconds is
+    # how often the worker probes the printer between flush attempts.
+    "queue_enabled": _bool_env("PRINTER_QUEUE_ENABLED", True),
+    "queue_poll_seconds": max(5, _int_env("PRINTER_QUEUE_POLL_SECONDS", 30)),
+    "queue_max": max(1, _int_env("PRINTER_QUEUE_MAX", 500)),
     "setup_completed": False,
 }
 CONFIG_LOCK = threading.Lock()
@@ -191,6 +198,22 @@ def _init_db() -> None:
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_ts ON jobs(ts)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)")
+        # Durable offline print queue. Kept separate from `jobs` so analytics
+        # (which filters status in ('success','error')) is never polluted by
+        # pending items; a flushed job lands in `jobs` via record_job().
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS print_queue (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts REAL NOT NULL,
+                job_type TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                source TEXT,
+                summary TEXT,
+                attempts INTEGER DEFAULT 0,
+                last_error TEXT
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_queue_id ON print_queue(id)")
 
 
 @contextmanager
@@ -229,10 +252,86 @@ def record_job(job_type: str, status: str, duration_ms: Optional[int],
 
 
 # --------------------------------------------------------------------------
+# Offline print queue storage (SQLite, FIFO by id)
+# --------------------------------------------------------------------------
+def enqueue_job(job_type: str, payload: dict, source: Optional[str],
+                summary: Optional[str]) -> int:
+    """Persist a pending print job; returns its queue id."""
+    with _db() as conn:
+        cur = conn.execute(
+            """INSERT INTO print_queue (ts, job_type, payload, source, summary)
+               VALUES (?, ?, ?, ?, ?)""",
+            (time.time(), job_type, json.dumps(payload), source, summary),
+        )
+        return int(cur.lastrowid)
+
+
+def list_queue(limit: int = 500) -> list[dict]:
+    """Pending jobs oldest-first. `payload` is returned as the parsed dict."""
+    limit = max(1, int(limit))
+    with _db() as conn:
+        rows = conn.execute(
+            """SELECT id, ts, job_type, payload, source, summary, attempts, last_error
+               FROM print_queue ORDER BY id ASC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+    out: list[dict] = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d["payload"] = json.loads(d["payload"])
+        except (TypeError, ValueError):
+            d["payload"] = {}
+        out.append(d)
+    return out
+
+
+def queue_depth() -> int:
+    try:
+        with _db() as conn:
+            return int(conn.execute(
+                "SELECT COUNT(*) AS n FROM print_queue").fetchone()["n"])
+    except sqlite3.Error:
+        return 0
+
+
+def oldest_queued() -> Optional[sqlite3.Row]:
+    with _db() as conn:
+        return conn.execute(
+            """SELECT id, ts, job_type, payload, source, summary, attempts, last_error
+               FROM print_queue ORDER BY id ASC LIMIT 1""").fetchone()
+
+
+def delete_queued(queue_id: int) -> None:
+    with _db() as conn:
+        conn.execute("DELETE FROM print_queue WHERE id = ?", (int(queue_id),))
+
+
+def clear_queue() -> int:
+    with _db() as conn:
+        cur = conn.execute("DELETE FROM print_queue")
+        return cur.rowcount or 0
+
+
+def _mark_queue_error(queue_id: int, error: str) -> None:
+    """Record a flush error against a queued row before it is removed."""
+    with _db() as conn:
+        conn.execute(
+            "UPDATE print_queue SET attempts = attempts + 1, last_error = ? WHERE id = ?",
+            (error, int(queue_id)),
+        )
+
+
+# --------------------------------------------------------------------------
 # Metrics and job serialization
 # --------------------------------------------------------------------------
-METRICS = {"success": 0, "error": 0, "last_job_ts": 0.0}
+METRICS = {"success": 0, "error": 0, "queued": 0, "last_job_ts": 0.0}
 PRINT_LOCK = threading.Lock()
+QUEUE_FLUSH_LOCK = threading.Lock()
+# Set to wake the worker for an immediate flush (manual or after an enqueue);
+# QUEUE_SHUTDOWN stops the worker loop on application shutdown.
+QUEUE_WAKE = threading.Event()
+QUEUE_SHUTDOWN = threading.Event()
 
 
 class PrintError(Exception):
@@ -293,10 +392,14 @@ def _apply_codepage(printer: Network) -> None:
         printer.charcode("AUTO")
 
 
-def run_print_job(job_name: str, render: Callable[[Network], None],
-                  source: Optional[str] = None,
-                  summary: Optional[str] = None) -> None:
-    """Serialize, then run `render` against a fresh connection with backoff retry."""
+def _do_print(render: Callable[[Network], None]) -> tuple[int, int]:
+    """Run `render` against a fresh connection with backoff retry.
+
+    Serializes through PRINT_LOCK, opens a Network per attempt, applies the
+    codepage and renders. Returns (duration_ms, attempts) on success; raises
+    PrintError after exhausting retries. Does NOT record the job or touch
+    METRICS — callers decide how to account for the outcome.
+    """
     if not CONFIG["printer_host"]:
         raise PrintError("printer is not configured")
     started = time.monotonic()
@@ -313,14 +416,8 @@ def run_print_job(job_name: str, render: Callable[[Network], None],
                 _apply_codepage(printer)
                 render(printer)
                 printer.close()
-                METRICS["success"] += 1
-                METRICS["last_job_ts"] = time.time()
                 duration_ms = round((time.monotonic() - started) * 1000)
-                log("print.job.success", job=job_name, attempt=attempt,
-                    duration_ms=duration_ms)
-                record_job(job_name, "success", duration_ms, attempt,
-                           None, source, summary)
-                return
+                return duration_ms, attempt
             except Exception as exc:
                 last_exc = exc
                 if printer is not None:
@@ -329,17 +426,187 @@ def run_print_job(job_name: str, render: Callable[[Network], None],
                     except Exception:
                         pass
                 log("print.job.attempt_failed", level=logging.WARNING,
-                    job=job_name, attempt=attempt, error=describe_error(exc))
+                    attempt=attempt, error=describe_error(exc))
                 if attempt < retries:
                     time.sleep(min(2 ** attempt, 8))
-
-        METRICS["error"] += 1
         detail = describe_error(last_exc) if last_exc else "unknown error"
-        duration_ms = round((time.monotonic() - started) * 1000)
-        log("print.job.failed", level=logging.ERROR, job=job_name,
-            attempts=retries, error=detail)
-        record_job(job_name, "error", duration_ms, retries, detail, source, summary)
         raise PrintError(detail)
+
+
+def run_print_job(job_name: str, render: Callable[[Network], None],
+                  source: Optional[str] = None,
+                  summary: Optional[str] = None,
+                  rehydrate: Optional[dict] = None,
+                  queueable: bool = True) -> str:
+    """Print `render`, or queue it for later when the printer is offline.
+
+    Returns "printed" on a successful print, or "queued" when the job was
+    persisted to the offline queue. Raises PrintError (→ 502) on a genuine
+    failure that is NOT a connectivity problem.
+
+    Queueing kicks in only when CONFIG["queue_enabled"], `queueable` is True
+    and a JSON-serializable `rehydrate` descriptor was supplied (so the worker
+    can rebuild the render later). Otherwise behavior is unchanged: attempt,
+    record, raise on failure.
+    """
+    host = CONFIG["printer_host"]
+    port = int(CONFIG["printer_port"])
+    can_queue = (bool(CONFIG.get("queue_enabled"))
+                 and queueable and rehydrate is not None)
+
+    # Pre-check: if the printer is plainly offline at submit time, don't burn
+    # retry/backoff delays on the request — queue immediately.
+    if can_queue and not tcp_reachable(host, port):
+        _enqueue_for_later(job_name, rehydrate, source, summary)
+        return "queued"
+
+    if not host:
+        raise PrintError("printer is not configured")
+
+    try:
+        duration_ms, attempts = _do_print(render)
+    except PrintError as exc:
+        if can_queue and not tcp_reachable(host, port):
+            # The printer dropped between the pre-check and now → queue it
+            # rather than fail. Avoids poison-requeue of jobs that connect
+            # but fail for content reasons (handled below).
+            _enqueue_for_later(job_name, rehydrate, source, summary)
+            return "queued"
+        # Genuine error (printer reachable but the job failed) → 502.
+        METRICS["error"] += 1
+        duration_ms = round(0)
+        detail = str(exc)
+        log("print.job.failed", level=logging.ERROR, job=job_name,
+            attempts=int(CONFIG["printer_retries"]), error=detail)
+        record_job(job_name, "error", duration_ms,
+                   int(CONFIG["printer_retries"]), detail, source, summary)
+        raise
+
+    METRICS["success"] += 1
+    METRICS["last_job_ts"] = time.time()
+    log("print.job.success", job=job_name, attempt=attempts,
+        duration_ms=duration_ms)
+    record_job(job_name, "success", duration_ms, attempts, None, source, summary)
+    return "printed"
+
+
+def _enqueue_for_later(job_name: str, rehydrate: dict,
+                       source: Optional[str], summary: Optional[str]) -> int:
+    """Enqueue a job for offline flush, enforcing the queue cap. Returns the
+    new queue depth. Raises HTTP 503 when the queue is full."""
+    if queue_depth() >= int(CONFIG["queue_max"]):
+        log("print.queue.full", level=logging.WARNING, job=job_name,
+            queue_max=int(CONFIG["queue_max"]))
+        raise HTTPException(status_code=503, detail="print queue is full")
+    enqueue_job(rehydrate["job_type"], rehydrate["payload"], source, summary)
+    METRICS["queued"] += 1
+    depth = queue_depth()
+    log("print.queued", job=job_name, queue_depth=depth)
+    # Nudge the worker so a queued job is flushed promptly once the printer is
+    # back, without waiting for the next poll tick.
+    QUEUE_WAKE.set()
+    return depth
+
+
+def flush_queue_once() -> dict[str, int]:
+    """Flush pending queued jobs in FIFO order while the printer is reachable.
+
+    Single-flight via QUEUE_FLUSH_LOCK (concurrent callers no-op). Returns
+    {"flushed": n, "remaining": m}. Each job acquires PRINT_LOCK independently
+    (inside _do_print) so live print requests can interleave between jobs.
+
+    Stop/keep policy on a per-job PrintError: re-check reachability — if the
+    printer went away, STOP and leave this and the remaining jobs queued; if it
+    is still reachable the failure is genuine/poison, so the job is recorded as
+    an error and removed so it cannot block the queue forever.
+    """
+    if not CONFIG.get("queue_enabled"):
+        return {"flushed": 0, "remaining": queue_depth()}
+    if not QUEUE_FLUSH_LOCK.acquire(blocking=False):
+        return {"flushed": 0, "remaining": queue_depth()}
+    flushed = 0
+    try:
+        if queue_depth() == 0:
+            return {"flushed": 0, "remaining": 0}
+        host = CONFIG["printer_host"]
+        port = int(CONFIG["printer_port"])
+        if not host or not tcp_reachable(host, port):
+            return {"flushed": 0, "remaining": queue_depth()}
+        while not QUEUE_SHUTDOWN.is_set():
+            row = oldest_queued()
+            if row is None:
+                break
+            queue_id = int(row["id"])
+            source = row["source"]
+            summary = row["summary"]
+            try:
+                payload = json.loads(row["payload"])
+            except (TypeError, ValueError):
+                payload = {}
+            try:
+                render = render_from_payload(row["job_type"], payload)
+            except Exception as exc:
+                # Unrenderable/poison payload — record and drop it.
+                detail = describe_error(exc)
+                _mark_queue_error(queue_id, detail)
+                record_job(row["job_type"], "error", 0, 0, detail, source, summary)
+                delete_queued(queue_id)
+                METRICS["error"] += 1
+                log("queue.flush.dropped", level=logging.WARNING,
+                    queue_id=queue_id, error=detail)
+                continue
+            try:
+                duration_ms, attempts = _do_print(render)
+            except PrintError as exc:
+                detail = str(exc)
+                if not tcp_reachable(host, port):
+                    # Printer dropped mid-flush: stop and keep everything queued.
+                    log("queue.flush.paused", queue_id=queue_id, error=detail,
+                        remaining=queue_depth())
+                    break
+                # Reachable but failing → genuine/poison error: record and drop.
+                _mark_queue_error(queue_id, detail)
+                record_job(row["job_type"], "error",
+                           0, int(CONFIG["printer_retries"]), detail,
+                           source, summary)
+                delete_queued(queue_id)
+                METRICS["error"] += 1
+                log("queue.flush.error", level=logging.WARNING,
+                    queue_id=queue_id, error=detail)
+                continue
+            record_job(row["job_type"], "success", duration_ms, attempts,
+                       None, source, summary)
+            delete_queued(queue_id)
+            METRICS["success"] += 1
+            METRICS["last_job_ts"] = time.time()
+            flushed += 1
+            log("queue.flush.printed", queue_id=queue_id,
+                duration_ms=duration_ms, attempt=attempts)
+        remaining = queue_depth()
+        if flushed:
+            log("queue.flush.done", flushed=flushed, remaining=remaining)
+        return {"flushed": flushed, "remaining": remaining}
+    finally:
+        QUEUE_FLUSH_LOCK.release()
+
+
+def _queue_worker() -> None:
+    """Background loop: probe the printer and flush the queue on recovery.
+
+    Sleeps queue_poll_seconds between flushes, but wakes early when QUEUE_WAKE
+    is set (manual flush / new enqueue). Tolerates any exception so the worker
+    thread never dies.
+    """
+    log("queue.worker.started", poll_seconds=int(CONFIG["queue_poll_seconds"]))
+    while not QUEUE_SHUTDOWN.is_set():
+        try:
+            flush_queue_once()
+        except Exception as exc:
+            log("queue.worker.error", level=logging.ERROR,
+                error=describe_error(exc))
+        QUEUE_WAKE.wait(max(5, int(CONFIG["queue_poll_seconds"])))
+        QUEUE_WAKE.clear()
+    log("queue.worker.stopped")
 
 
 # --------------------------------------------------------------------------
@@ -463,6 +730,9 @@ class ConfigUpdate(BaseModel):
     tz: Optional[str] = None
     rate_limit_per_minute: Optional[int] = None
     rate_limit_per_hour: Optional[int] = None
+    queue_enabled: Optional[bool] = None
+    queue_poll_seconds: Optional[int] = None
+    queue_max: Optional[int] = None
 
 
 class TestConnectionPayload(BaseModel):
@@ -589,6 +859,42 @@ def render_selftest(p: Network) -> None:
     wrong or the host has no font mapping for what we send.
     """
     p._raw(bytes([0x1D, 0x28, 0x41, 0x02, 0x00, 0x00, 0x02]))
+
+
+def render_from_payload(job_type: str, payload: dict) -> Callable[[Network], None]:
+    """Rebuild a render callable from a persisted queue payload.
+
+    Image payloads are expected to carry a self-contained base64 PNG data URL
+    in payload["image"] (stored at enqueue time), so flushing never depends on
+    the original URL still resolving.
+    """
+    if job_type == "text":
+        job = TextJob(**payload)
+        return lambda p: render_text(p, job)
+    if job_type == "receipt":
+        job = ReceiptJob(**payload)
+        return lambda p: render_receipt(p, job)
+    if job_type == "image":
+        img = load_image(payload["image"])
+        align = payload.get("align", "center")
+        caption = payload.get("caption")
+        cut = payload.get("cut", True)
+        username = payload.get("username")
+        return lambda p: render_image(p, img, align, caption, cut, username)
+    if job_type == "generic":
+        job = GenericJob(**payload)
+        img = load_image(job.image) if job.image else None
+        return lambda p: render_generic(p, job, img)
+    raise PrintError(f"unknown queued job_type: {job_type}")
+
+
+def _image_to_data_url(img: Image.Image) -> str:
+    """Re-encode a loaded PIL image as a base64 PNG data URL for durable queue
+    storage (the original src/URL may not resolve again later)."""
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+    return f"data:image/png;base64,{b64}"
 
 
 # --------------------------------------------------------------------------
@@ -792,6 +1098,7 @@ def health() -> dict:
         "status": "ok" if reachable else "degraded",
         "service": SERVICE_NAME,
         "printer": printer,
+        "queue_depth": queue_depth(),
     }
 
 
@@ -823,75 +1130,107 @@ def metrics() -> PlainTextResponse:
 # --------------------------------------------------------------------------
 # Print endpoints
 # --------------------------------------------------------------------------
+def _print_result_response(status: str, job_name: str) -> JSONResponse:
+    """Build the endpoint response for a run_print_job() result.
+
+    "queued" -> HTTP 202 with the current queue depth; "printed" -> HTTP 200.
+    """
+    if status == "queued":
+        return JSONResponse(
+            status_code=202,
+            content={"status": "queued", "job": job_name,
+                     "queue_depth": queue_depth()},
+        )
+    return JSONResponse(status_code=200,
+                        content={"status": "printed", "job": job_name})
+
+
 @app.post("/print/text")
 def print_text(job: TextJob, request: Request,
-               _rl: None = Depends(enforce_rate_limit)) -> dict:
-    run_print_job("text", lambda p: render_text(p, job),
-                  source=_print_source(request, job.username),
-                  summary=_summarize_payload(job))
-    return {"status": "printed", "job": "text"}
+               _rl: None = Depends(enforce_rate_limit)) -> JSONResponse:
+    status = run_print_job(
+        "text", lambda p: render_text(p, job),
+        source=_print_source(request, job.username),
+        summary=_summarize_payload(job),
+        rehydrate={"job_type": "text", "payload": job.model_dump()})
+    return _print_result_response(status, "text")
 
 
 @app.post("/print/receipt")
 def print_receipt(job: ReceiptJob, request: Request,
                   _rl: None = Depends(enforce_rate_limit),
-                  _: dict = Depends(_require_bearer)) -> dict:
-    run_print_job("receipt", lambda p: render_receipt(p, job),
-                  source=_request_source(request),
-                  summary=_summarize_payload(job))
-    return {"status": "printed", "job": "receipt"}
+                  _: dict = Depends(_require_bearer)) -> JSONResponse:
+    status = run_print_job(
+        "receipt", lambda p: render_receipt(p, job),
+        source=_request_source(request),
+        summary=_summarize_payload(job),
+        rehydrate={"job_type": "receipt", "payload": job.model_dump()})
+    return _print_result_response(status, "receipt")
 
 
 @app.post("/print/image")
 def print_image(job: ImageJob, request: Request,
-                _rl: None = Depends(enforce_rate_limit)) -> dict:
+                _rl: None = Depends(enforce_rate_limit)) -> JSONResponse:
     try:
         img = load_image(job.image)
     except Exception as exc:
         raise HTTPException(status_code=400,
                             detail=f"could not load image: {exc}")
-    run_print_job("image",
-                  lambda p: render_image(p, img, job.align, job.caption,
-                                         job.cut, job.username),
-                  source=_print_source(request, job.username),
-                  summary=_summarize_payload(job))
-    return {"status": "printed", "job": "image"}
+    # Persist the already-resolved image as a self-contained data URL so a
+    # queued job stays reprintable even if the original URL stops resolving.
+    payload = job.model_dump()
+    payload["image"] = _image_to_data_url(img)
+    status = run_print_job(
+        "image",
+        lambda p: render_image(p, img, job.align, job.caption,
+                               job.cut, job.username),
+        source=_print_source(request, job.username),
+        summary=_summarize_payload(job),
+        rehydrate={"job_type": "image", "payload": payload})
+    return _print_result_response(status, "image")
 
 
 @app.post("/print")
 def print_generic(job: GenericJob, request: Request,
                   _rl: None = Depends(enforce_rate_limit),
-                  _: dict = Depends(_require_bearer)) -> dict:
+                  _: dict = Depends(_require_bearer)) -> JSONResponse:
     if not any([job.text, job.title, job.qr, job.barcode, job.image]):
         raise HTTPException(
             status_code=400,
             detail="provide at least one of: text, title, qr, barcode, image")
     img = None
+    payload = job.model_dump()
     if job.image:
         try:
             img = load_image(job.image)
         except Exception as exc:
             raise HTTPException(status_code=400,
                                 detail=f"could not load image: {exc}")
-    run_print_job("generic", lambda p: render_generic(p, job, img),
-                  source=_request_source(request),
-                  summary=_summarize_payload(job))
-    return {"status": "printed", "job": "generic"}
+        payload["image"] = _image_to_data_url(img)
+    status = run_print_job(
+        "generic", lambda p: render_generic(p, job, img),
+        source=_request_source(request),
+        summary=_summarize_payload(job),
+        rehydrate={"job_type": "generic", "payload": payload})
+    return _print_result_response(status, "generic")
 
 
 @app.post("/print/test")
 def print_test(request: Request,
                _rl: None = Depends(enforce_rate_limit),
                _: dict = Depends(require_admin)) -> dict:
+    # Diagnostics must never pile up in the queue.
     run_print_job("test", render_test,
-                  source=_request_source(request), summary="test")
+                  source=_request_source(request), summary="test",
+                  queueable=False)
     return {"status": "printed", "job": "test"}
 
 
 @app.post("/print/selftest")
 def print_selftest(request: Request, _: dict = Depends(require_admin)) -> dict:
     run_print_job("selftest", render_selftest,
-                  source=_request_source(request), summary="selftest")
+                  source=_request_source(request), summary="selftest",
+                  queueable=False)
     return {"status": "printed", "job": "selftest"}
 
 
@@ -909,6 +1248,9 @@ def _public_config() -> dict[str, Any]:
         "tz": CONFIG["tz"],
         "rate_limit_per_minute": int(CONFIG.get("rate_limit_per_minute", 0) or 0),
         "rate_limit_per_hour": int(CONFIG.get("rate_limit_per_hour", 0) or 0),
+        "queue_enabled": bool(CONFIG.get("queue_enabled")),
+        "queue_poll_seconds": int(CONFIG.get("queue_poll_seconds", 30) or 30),
+        "queue_max": int(CONFIG.get("queue_max", 500) or 500),
         "setup_completed": bool(CONFIG.get("setup_completed")),
         "token_set": bool(token),
         "token_preview": (token[:4] + "…" + token[-4:]) if len(token) >= 12 else ("set" if token else ""),
@@ -1011,6 +1353,12 @@ def update_config(payload: ConfigUpdate, _: dict = Depends(require_admin)) -> di
                 value = max(1, int(value))
             elif key in ("rate_limit_per_minute", "rate_limit_per_hour"):
                 value = max(0, int(value))
+            elif key == "queue_poll_seconds":
+                value = max(5, int(value))
+            elif key == "queue_max":
+                value = max(1, int(value))
+            elif key == "queue_enabled":
+                value = bool(value)
             CONFIG[key] = value
         _save_persisted_config()
     log("config.updated", changed=list(data.keys()))
@@ -1031,6 +1379,35 @@ def list_jobs(limit: int = 100, status: Optional[str] = None,
     with _db() as conn:
         rows = [dict(r) for r in conn.execute(query, params).fetchall()]
     return {"jobs": rows}
+
+
+# -----------------------------------------------------------------------
+# Offline queue admin API
+# -----------------------------------------------------------------------
+@app.get("/api/queue")
+def get_queue(_: dict = Depends(require_admin)) -> dict:
+    return {"queue": list_queue(), "depth": queue_depth()}
+
+
+@app.post("/api/queue/flush")
+def post_queue_flush(_: dict = Depends(require_admin)) -> dict:
+    result = flush_queue_once()
+    QUEUE_WAKE.set()
+    return {"result": result, "depth": queue_depth()}
+
+
+@app.delete("/api/queue")
+def delete_queue(_: dict = Depends(require_admin)) -> dict:
+    removed = clear_queue()
+    log("queue.cleared", removed=removed)
+    return {"removed": removed, "depth": queue_depth()}
+
+
+@app.delete("/api/queue/{queue_id}")
+def delete_queue_item(queue_id: int, _: dict = Depends(require_admin)) -> dict:
+    delete_queued(queue_id)
+    log("queue.item.deleted", queue_id=queue_id)
+    return {"removed": queue_id, "depth": queue_depth()}
 
 
 @app.get("/api/analytics/summary")
@@ -1076,6 +1453,7 @@ def analytics_summary(_: dict = Depends(require_admin)) -> dict:
         "recent_errors": recent_errors,
         "printer_reachable": tcp_reachable(CONFIG["printer_host"],
                                            int(CONFIG["printer_port"])),
+        "queue_depth": queue_depth(),
         "metrics": METRICS,
     }
 
@@ -1176,6 +1554,29 @@ def _mount_frontend() -> None:
         if candidate.is_file():
             return FileResponse(str(candidate))
         return FileResponse(str(INDEX_HTML))
+
+
+# --------------------------------------------------------------------------
+# Background queue worker lifecycle
+# --------------------------------------------------------------------------
+_QUEUE_THREAD: Optional[threading.Thread] = None
+
+
+@app.on_event("startup")
+def _start_queue_worker() -> None:
+    global _QUEUE_THREAD
+    if _QUEUE_THREAD is not None and _QUEUE_THREAD.is_alive():
+        return
+    QUEUE_SHUTDOWN.clear()
+    _QUEUE_THREAD = threading.Thread(
+        target=_queue_worker, name="printcast-queue", daemon=True)
+    _QUEUE_THREAD.start()
+
+
+@app.on_event("shutdown")
+def _stop_queue_worker() -> None:
+    QUEUE_SHUTDOWN.set()
+    QUEUE_WAKE.set()
 
 
 # --------------------------------------------------------------------------

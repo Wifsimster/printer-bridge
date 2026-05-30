@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { ApiError, endpoints } from "@/lib/api";
-import { usePublicUsername } from "@/lib/publicUser";
+import { usePublicUsername } from "@/lib/publicUsername";
 import {
   FORTUNE_CATEGORIES,
   FortuneCategory,
@@ -80,21 +80,21 @@ export function PublicFortune() {
       </div>
       <div className="rounded-md border bg-muted/30 p-4">
         <div className="flex items-start gap-2">
-          <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+          <Sparkles className="mt-0.5 size-4 shrink-0 text-primary" />
           <p className="text-sm leading-relaxed">{current}</p>
         </div>
       </div>
       <div className="flex flex-wrap gap-2">
         <Button onClick={run} disabled={busy || !current}>
           {busy ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            <Loader2 className="mr-2 size-4 animate-spin" />
           ) : (
-            <Send className="mr-2 h-4 w-4" />
+            <Send className="mr-2 size-4" />
           )}
           {t("public.fortune.print")}
         </Button>
         <Button variant="outline" onClick={() => shuffle()} disabled={busy}>
-          <RefreshCw className="mr-2 h-4 w-4" />
+          <RefreshCw className="mr-2 size-4" />
           {t("public.fortune.shuffle")}
         </Button>
       </div>

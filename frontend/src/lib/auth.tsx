@@ -4,6 +4,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useState,
 } from "react";
 import { Navigate, useLocation } from "react-router-dom";
@@ -20,22 +21,22 @@ type AuthState = {
 const AuthContext = createContext<AuthState | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [me, setMe] = useState<Me | null>(null);
-  const [loading, setLoading] = useState(true);
+  // `undefined` means the initial /me request has not resolved yet, which is
+  // exactly the "loading" condition — derive it during render instead of
+  // mirroring it into a separate state value.
+  const [me, setMe] = useState<Me | null | undefined>(undefined);
+  const loading = me === undefined;
 
   const refresh = useCallback(async () => {
-    setLoading(true);
     try {
       setMe(await endpoints.me());
     } catch {
       setMe(null);
-    } finally {
-      setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    refresh();
+    void refresh();
   }, [refresh]);
 
   const signOut = useCallback(async () => {
@@ -47,10 +48,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setMe(null);
   }, []);
 
+  const value = useMemo<AuthState>(
+    () => ({ me: me ?? null, loading, refresh, signOut }),
+    [me, loading, refresh, signOut]
+  );
+
   return (
-    <AuthContext.Provider value={{ me, loading, refresh, signOut }}>
-      {children}
-    </AuthContext.Provider>
+    <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
   );
 }
 
@@ -67,7 +71,7 @@ export function RequireAdmin({ children }: { children: ReactNode }) {
   if (loading) {
     return (
       <div className="flex h-64 items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        <Loader2 className="size-6 animate-spin text-muted-foreground" />
       </div>
     );
   }
@@ -77,7 +81,7 @@ export function RequireAdmin({ children }: { children: ReactNode }) {
   if (me.role !== "admin") {
     return (
       <div className="flex h-64 flex-col items-center justify-center gap-2 text-center">
-        <ShieldAlert className="h-10 w-10 text-destructive" />
+        <ShieldAlert className="size-10 text-destructive" />
         <h2 className="text-lg font-semibold">Admin role required</h2>
         <p className="max-w-sm text-sm text-muted-foreground">
           You are signed in as <span className="font-mono">{me.email}</span> (

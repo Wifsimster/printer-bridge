@@ -81,9 +81,9 @@ function SelfTest() {
       <p className="text-sm text-muted-foreground">{t("testPrint.selfTestDesc")}</p>
       <Button onClick={run} disabled={busy} className="w-full sm:w-auto">
         {busy ? (
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          <Loader2 className="mr-2 size-4 animate-spin" />
         ) : (
-          <Network className="mr-2 h-4 w-4" />
+          <Network className="mr-2 size-4" />
         )}
         {t("testPrint.runSelfTest")}
       </Button>
@@ -110,9 +110,9 @@ function QuickTest() {
       <p className="text-sm text-muted-foreground">{t("testPrint.quickDesc")}</p>
       <Button onClick={run} disabled={busy} className="w-full sm:w-auto">
         {busy ? (
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          <Loader2 className="mr-2 size-4 animate-spin" />
         ) : (
-          <Printer className="mr-2 h-4 w-4" />
+          <Printer className="mr-2 size-4" />
         )}
         {t("testPrint.runTestPrint")}
       </Button>
@@ -190,9 +190,9 @@ function TextPrint() {
       </div>
       <Button onClick={run} disabled={busy || !text.trim()} className="w-full sm:w-auto">
         {busy ? (
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          <Loader2 className="mr-2 size-4 animate-spin" />
         ) : (
-          <Send className="mr-2 h-4 w-4" />
+          <Send className="mr-2 size-4" />
         )}
         {t("testPrint.print")}
       </Button>
@@ -200,15 +200,28 @@ function TextPrint() {
   );
 }
 
+type ReceiptForm = {
+  title: string;
+  subtitle: string;
+  lines: string;
+  footer: string;
+  qr: string;
+  timestamp: boolean;
+};
+
 function ReceiptPrint() {
   const { t } = useTranslation();
-  const [title, setTitle] = useState("COURSES");
-  const [subtitle, setSubtitle] = useState("");
-  const [lines, setLines] = useState("- Pain\n- Café\n- Œufs x6");
-  const [footer, setFooter] = useState("Bon appétit !");
-  const [qr, setQr] = useState("");
-  const [timestamp, setTimestamp] = useState(true);
   const [busy, setBusy] = useState(false);
+  // Related receipt fields grouped into a single state object.
+  const [form, setForm] = useState<ReceiptForm>({
+    title: "COURSES",
+    subtitle: "",
+    lines: "- Pain\n- Café\n- Œufs x6",
+    footer: "Bon appétit !",
+    qr: "",
+    timestamp: true,
+  });
+  const { title, subtitle, lines, footer, qr, timestamp } = form;
 
   async function run() {
     setBusy(true);
@@ -234,14 +247,18 @@ function ReceiptPrint() {
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <Label htmlFor="title">{t("testPrint.receiptTitle")}</Label>
-          <Input id="title" value={title} onChange={(e) => setTitle(e.target.value)} />
+          <Input
+            id="title"
+            value={title}
+            onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+          />
         </div>
         <div className="space-y-2">
           <Label htmlFor="subtitle">{t("testPrint.receiptSubtitle")}</Label>
           <Input
             id="subtitle"
             value={subtitle}
-            onChange={(e) => setSubtitle(e.target.value)}
+            onChange={(e) => setForm((f) => ({ ...f, subtitle: e.target.value }))}
           />
         </div>
       </div>
@@ -251,17 +268,25 @@ function ReceiptPrint() {
           id="lines"
           rows={6}
           value={lines}
-          onChange={(e) => setLines(e.target.value)}
+          onChange={(e) => setForm((f) => ({ ...f, lines: e.target.value }))}
         />
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <Label htmlFor="footer">{t("testPrint.receiptFooter")}</Label>
-          <Input id="footer" value={footer} onChange={(e) => setFooter(e.target.value)} />
+          <Input
+            id="footer"
+            value={footer}
+            onChange={(e) => setForm((f) => ({ ...f, footer: e.target.value }))}
+          />
         </div>
         <div className="space-y-2">
           <Label htmlFor="qr">{t("testPrint.receiptQr")}</Label>
-          <Input id="qr" value={qr} onChange={(e) => setQr(e.target.value)} />
+          <Input
+            id="qr"
+            value={qr}
+            onChange={(e) => setForm((f) => ({ ...f, qr: e.target.value }))}
+          />
         </div>
       </div>
       <div className="flex items-center gap-2">
@@ -269,15 +294,18 @@ function ReceiptPrint() {
           id="ts"
           type="checkbox"
           checked={timestamp}
-          onChange={(e) => setTimestamp(e.target.checked)}
+          onChange={(e) =>
+            setForm((f) => ({ ...f, timestamp: e.target.checked }))
+          }
+          aria-label={t("testPrint.receiptTimestamp")}
         />
         <Label htmlFor="ts">{t("testPrint.receiptTimestamp")}</Label>
       </div>
       <Button onClick={run} disabled={busy} className="w-full sm:w-auto">
         {busy ? (
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          <Loader2 className="mr-2 size-4 animate-spin" />
         ) : (
-          <Send className="mr-2 h-4 w-4" />
+          <Send className="mr-2 size-4" />
         )}
         {t("testPrint.receiptPrint")}
       </Button>

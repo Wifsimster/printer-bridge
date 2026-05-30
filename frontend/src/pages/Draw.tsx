@@ -36,11 +36,17 @@ export function Draw() {
   const currentRef = useRef<Stroke | null>(null);
   const activePointerRef = useRef<number | null>(null);
 
-  const [brush, setBrush] = useState(8);
-  const [erase, setErase] = useState(false);
   const [caption, setCaption] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [hasInk, setHasInk] = useState(false);
+  // Drawing tool settings grouped together.
+  const [tool, setTool] = useState({ brush: 8, erase: false });
+  // Async/interaction status flags grouped together.
+  const [status, setStatus] = useState({ busy: false, hasInk: false });
+  const { brush, erase } = tool;
+  const { busy, hasInk } = status;
+  const setBrush = (brush: number) => setTool((s) => ({ ...s, brush }));
+  const setErase = (erase: boolean) => setTool((s) => ({ ...s, erase }));
+  const setBusy = (busy: boolean) => setStatus((s) => ({ ...s, busy }));
+  const setHasInk = (hasInk: boolean) => setStatus((s) => ({ ...s, hasInk }));
 
   const paintBackground = useCallback((ctx: CanvasRenderingContext2D) => {
     ctx.fillStyle = "#ffffff";
@@ -146,17 +152,9 @@ export function Draw() {
     }
   };
 
-  // Prevent page scroll while drawing on touch devices: the canvas itself uses
-  // touch-action: none, but the wrapper guards against rubber-band scrolling.
-  useEffect(() => {
-    const el = wrapperRef.current;
-    if (!el) return;
-    const stop = (e: TouchEvent) => {
-      if (activePointerRef.current !== null) e.preventDefault();
-    };
-    el.addEventListener("touchmove", stop, { passive: false });
-    return () => el.removeEventListener("touchmove", stop);
-  }, []);
+  // The canvas uses `touch-action: none` (the `touch-none` class) together with
+  // Pointer Events, which already prevents the page from scrolling while drawing
+  // with a finger, so no extra non-passive `touchmove` listener is needed.
 
   return (
     <div className="space-y-6">
@@ -178,7 +176,7 @@ export function Draw() {
               variant={erase ? "outline" : "default"}
               onClick={() => setErase(false)}
             >
-              <Pencil className="mr-2 h-4 w-4" /> {t("draw.pencil")}
+              <Pencil className="mr-2 size-4" /> {t("draw.pencil")}
             </Button>
             <Button
               type="button"
@@ -186,7 +184,7 @@ export function Draw() {
               variant={erase ? "default" : "outline"}
               onClick={() => setErase(true)}
             >
-              <Eraser className="mr-2 h-4 w-4" /> {t("draw.eraser")}
+              <Eraser className="mr-2 size-4" /> {t("draw.eraser")}
             </Button>
 
             <div className="mx-2 hidden h-6 w-px bg-border sm:block" />
@@ -199,7 +197,7 @@ export function Draw() {
                   aria-label={t("draw.brushAria", { size: s })}
                   onClick={() => setBrush(s)}
                   className={cn(
-                    "flex h-9 w-9 items-center justify-center rounded-md border transition-colors",
+                    "flex size-9 items-center justify-center rounded-md border transition-colors",
                     brush === s
                       ? "border-primary bg-primary/10"
                       : "border-input hover:bg-accent"
@@ -224,7 +222,7 @@ export function Draw() {
                 onClick={undo}
                 disabled={strokesRef.current.length === 0}
               >
-                <RotateCcw className="mr-2 h-4 w-4" /> {t("draw.undo")}
+                <RotateCcw className="mr-2 size-4" /> {t("draw.undo")}
               </Button>
               <Button
                 type="button"
@@ -233,7 +231,7 @@ export function Draw() {
                 onClick={clear}
                 disabled={!hasInk && strokesRef.current.length === 0}
               >
-                <Trash2 className="mr-2 h-4 w-4" /> {t("draw.clearAction")}
+                <Trash2 className="mr-2 size-4" /> {t("draw.clearAction")}
               </Button>
             </div>
           </div>
@@ -270,9 +268,9 @@ export function Draw() {
           <div className="flex justify-end">
             <Button onClick={print} disabled={busy || !hasInk}>
               {busy ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <Loader2 className="mr-2 size-4 animate-spin" />
               ) : (
-                <Printer className="mr-2 h-4 w-4" />
+                <Printer className="mr-2 size-4" />
               )}
               {t("draw.print")}
             </Button>

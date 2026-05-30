@@ -1,20 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  Area,
-  AreaChart,
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Legend,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import { toast } from "sonner";
 import {
   Card,
@@ -29,31 +14,53 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
+import { JobsOverTimeChart } from "@/components/analytics/JobsOverTimeChart";
+import { ByTypeChart } from "@/components/analytics/ByTypeChart";
+import { OverallPieChart } from "@/components/analytics/OverallPieChart";
 import { AnalyticsSummary, endpoints, TimeseriesResponse } from "@/lib/api";
 
-const COLORS = ["hsl(221 83% 53%)", "hsl(142 71% 45%)", "hsl(38 92% 50%)", "hsl(280 67% 55%)"];
+type AnalyticsData = {
+  summary: AnalyticsSummary | null;
+  series: TimeseriesResponse | null;
+};
 
 export function Analytics() {
   const { t, i18n } = useTranslation();
-  const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
   const [hours, setHours] = useState(24);
-  const [series, setSeries] = useState<TimeseriesResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  // `undefined` represents the not-yet-loaded state; the loading flag is derived
+  // from it during render instead of being mirrored into a second state value.
+  // Keyed by `hours` so changing the range resets to the loading state without a
+  // separate setState in the effect.
+  const [data, setData] = useState<{
+    hours: number;
+    value: AnalyticsData;
+  } | null>(null);
+  const loading = data?.hours !== hours;
 
   useEffect(() => {
-    setLoading(true);
-    Promise.all([
-      endpoints.analyticsSummary(),
-      endpoints.timeseries(hours),
-    ])
-      .then(([s, ts]) => {
-        setSummary(s);
-        setSeries(ts);
-      })
-      .catch(() => toast.error(t("analytics.loadFailed")))
-      .finally(() => setLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hours]);
+    let cancelled = false;
+    (async () => {
+      let value: AnalyticsData;
+      try {
+        const [summary, series] = await Promise.all([
+          endpoints.analyticsSummary(),
+          endpoints.timeseries(hours),
+        ]);
+        value = { summary, series };
+      } catch {
+        if (cancelled) return;
+        toast.error(t("analytics.loadFailed"));
+        value = { summary: null, series: null };
+      }
+      if (!cancelled) setData({ hours, value });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [hours, t]);
+
+  const summary = data?.value.summary ?? null;
+  const series = data?.value.series ?? null;
 
   const seriesData = useMemo(() => {
     if (!series) return [];
@@ -94,6 +101,11 @@ export function Analytics() {
     ];
   }, [summary, t]);
 
+  const chartLabels = useMemo(
+    () => ({ success: t("analytics.success"), error: t("analytics.error") }),
+    [t]
+  );
+
   return (
     <div className="space-y-6">
       <header>
@@ -102,7 +114,7 @@ export function Analytics() {
       </header>
 
       <Card>
-        <CardHeader className="flex flex-col gap-3 space-y-0 sm:flex-row sm:items-center sm:justify-between">
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <CardTitle>{t("analytics.jobsOverTimeTitle")}</CardTitle>
             <CardDescription>{t("analytics.jobsOverTimeDesc")}</CardDescription>
@@ -122,49 +134,9 @@ export function Analytics() {
         </CardHeader>
         <CardContent className="h-56 sm:h-72">
           {loading ? (
-            <Skeleton className="h-full w-full" />
+            <Skeleton className="size-full" />
           ) : (
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={seriesData}>
-                <defs>
-                  <linearGradient id="successGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="hsl(142 71% 45%)" stopOpacity={0.6} />
-                    <stop offset="100%" stopColor="hsl(142 71% 45%)" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="errorGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="hsl(0 84% 60%)" stopOpacity={0.5} />
-                    <stop offset="100%" stopColor="hsl(0 84% 60%)" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                <XAxis dataKey="label" tick={{ fontSize: 11 }} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
-                <Tooltip
-                  contentStyle={{
-                    background: "hsl(var(--card))",
-                    border: "1px solid hsl(var(--border))",
-                    borderRadius: 6,
-                  }}
-                />
-                <Legend />
-                <Area
-                  type="monotone"
-                  dataKey="success"
-                  name={t("analytics.success")}
-                  stroke="hsl(142 71% 45%)"
-                  fill="url(#successGrad)"
-                  stackId="1"
-                />
-                <Area
-                  type="monotone"
-                  dataKey="error"
-                  name={t("analytics.error")}
-                  stroke="hsl(0 84% 60%)"
-                  fill="url(#errorGrad)"
-                  stackId="1"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
+            <JobsOverTimeChart data={seriesData} labels={chartLabels} />
           )}
         </CardContent>
       </Card>
@@ -177,27 +149,11 @@ export function Analytics() {
           </CardHeader>
           <CardContent className="h-56 sm:h-64">
             {loading ? (
-              <Skeleton className="h-full w-full" />
+              <Skeleton className="size-full" />
             ) : byTypeData.length === 0 ? (
               <p className="text-sm text-muted-foreground">{t("analytics.noData")}</p>
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={byTypeData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis dataKey="type" tick={{ fontSize: 11 }} />
-                  <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
-                  <Tooltip
-                    contentStyle={{
-                      background: "hsl(var(--card))",
-                      border: "1px solid hsl(var(--border))",
-                      borderRadius: 6,
-                    }}
-                  />
-                  <Legend />
-                  <Bar dataKey="success" name={t("analytics.success")} stackId="a" fill="hsl(142 71% 45%)" />
-                  <Bar dataKey="error" name={t("analytics.error")} stackId="a" fill="hsl(0 84% 60%)" />
-                </BarChart>
-              </ResponsiveContainer>
+              <ByTypeChart data={byTypeData} labels={chartLabels} />
             )}
           </CardContent>
         </Card>
@@ -209,52 +165,20 @@ export function Analytics() {
           </CardHeader>
           <CardContent className="h-56 sm:h-64">
             {loading ? (
-              <Skeleton className="h-full w-full" />
+              <Skeleton className="size-full" />
             ) : pieData.every((d) => d.value === 0) ? (
               <p className="text-sm text-muted-foreground">{t("analytics.noData")}</p>
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={pieData}
-                    dataKey="value"
-                    nameKey="name"
-                    outerRadius={80}
-                    innerRadius={40}
-                    label
-                  >
-                    {pieData.map((_, idx) => (
-                      <Cell key={idx} fill={COLORS[idx % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{
-                      background: "hsl(var(--card))",
-                      border: "1px solid hsl(var(--border))",
-                      borderRadius: 6,
-                    }}
-                  />
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
+              <OverallPieChart data={pieData} />
             )}
           </CardContent>
         </Card>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <SmallStat
-          label={t("analytics.lifetimeJobs")}
-          value={summary?.totals.all ?? 0}
-        />
-        <SmallStat
-          label={t("analytics.successes")}
-          value={summary?.totals.success ?? 0}
-        />
-        <SmallStat
-          label={t("analytics.errors")}
-          value={summary?.totals.error ?? 0}
-        />
+        <SmallStat label={t("analytics.lifetimeJobs")} value={summary?.totals.all ?? 0} />
+        <SmallStat label={t("analytics.successes")} value={summary?.totals.success ?? 0} />
+        <SmallStat label={t("analytics.errors")} value={summary?.totals.error ?? 0} />
         <SmallStat
           label={t("analytics.successRate")}
           value={`${(summary?.totals.success_rate ?? 0).toFixed(2)}%`}

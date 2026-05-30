@@ -57,8 +57,8 @@ export function Login() {
           <ThemeToggle />
         </div>
         <CardHeader className="space-y-2 text-center">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-info text-primary-foreground shadow-strong">
-            <Printer className="h-7 w-7" />
+          <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-info text-primary-foreground shadow-strong">
+            <Printer className="size-7" />
           </div>
           <CardTitle>{t("login.title")}</CardTitle>
           <CardDescription>{t("login.description")}</CardDescription>
@@ -90,9 +90,9 @@ export function Login() {
             </div>
             <Button type="submit" className="w-full" disabled={submitting}>
               {submitting ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <Loader2 className="mr-2 size-4 animate-spin" />
               ) : (
-                <LogIn className="mr-2 h-4 w-4" />
+                <LogIn className="mr-2 size-4" />
               )}
               {t("common.signIn")}
             </Button>

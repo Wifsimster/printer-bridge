@@ -30,8 +30,12 @@ export function Settings() {
   const [config, setConfig] = useState<ConfigResponse | null>(null);
   const [form, setForm] = useState<Partial<ConfigResponse>>({});
   const [token, setNewToken] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [testing, setTesting] = useState(false);
+  // Async status flags grouped so related updates stay together.
+  const [status, setStatus] = useState({ busy: false, testing: false });
+  const { busy, testing } = status;
+  const setBusy = (busy: boolean) => setStatus((s) => ({ ...s, busy }));
+  const setTesting = (testing: boolean) =>
+    setStatus((s) => ({ ...s, testing }));
 
   useEffect(() => {
     endpoints
@@ -41,8 +45,7 @@ export function Settings() {
         setForm(c);
       })
       .catch(() => toast.error(t("settings.loadConfigFailed")));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [t]);
 
   async function save(e: FormEvent) {
     e.preventDefault();
@@ -195,9 +198,9 @@ export function Settings() {
             <div className="flex flex-col gap-2 sm:flex-row">
               <Button type="submit" disabled={busy} className="w-full sm:w-auto">
                 {busy ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <Loader2 className="mr-2 size-4 animate-spin" />
                 ) : (
-                  <Save className="mr-2 h-4 w-4" />
+                  <Save className="mr-2 size-4" />
                 )}
                 {t("common.save")}
               </Button>
@@ -209,9 +212,9 @@ export function Settings() {
                 className="w-full sm:w-auto"
               >
                 {testing ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <Loader2 className="mr-2 size-4 animate-spin" />
                 ) : (
-                  <TestTube2 className="mr-2 h-4 w-4" />
+                  <TestTube2 className="mr-2 size-4" />
                 )}
                 {t("settings.testConnection")}
               </Button>
@@ -223,7 +226,7 @@ export function Settings() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Globe className="h-4 w-4" />
+            <Globe className="size-4" />
             {t("settings.languageCardTitle")}
           </CardTitle>
           <CardDescription>{t("settings.languageCardDesc")}</CardDescription>
@@ -280,7 +283,7 @@ export function Settings() {
               disabled={busy}
               className="w-full sm:w-auto"
             >
-              <RefreshCw className="mr-2 h-4 w-4" /> {t("settings.generateNew")}
+              <RefreshCw className="mr-2 size-4" /> {t("settings.generateNew")}
             </Button>
             {token && (
               <>
@@ -292,7 +295,7 @@ export function Settings() {
                   }}
                   className="w-full sm:w-auto"
                 >
-                  <ClipboardCopy className="mr-2 h-4 w-4" /> {t("common.copy")}
+                  <ClipboardCopy className="mr-2 size-4" /> {t("common.copy")}
                 </Button>
                 <Button
                   onClick={applyToken}

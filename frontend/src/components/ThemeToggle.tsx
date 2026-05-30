@@ -30,12 +30,12 @@ export function ThemeToggle({ className }: { className?: string }) {
             title={label}
             onClick={() => setTheme(value)}
             className={cn(
-              "flex h-7 w-7 items-center justify-center rounded-full transition-colors",
+              "flex size-7 items-center justify-center rounded-full transition-colors",
               "text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               active && "bg-primary text-primary-foreground shadow hover:text-primary-foreground"
             )}
           >
-            <Icon className="h-3.5 w-3.5" />
+            <Icon className="size-3.5" />
             <span className="sr-only">{label}</span>
           </button>
         );

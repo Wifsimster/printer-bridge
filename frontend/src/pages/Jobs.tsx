@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { RefreshCw } from "lucide-react";
 import { toast } from "sonner";
@@ -28,27 +28,39 @@ type Filter = "all" | "success" | "error";
 
 export function Jobs() {
   const { t } = useTranslation();
-  const [jobs, setJobs] = useState<Job[]>([]);
+  // `undefined` until the first fetch resolves; loading is derived from it.
+  const [jobs, setJobs] = useState<Job[] | undefined>(undefined);
   const [filter, setFilter] = useState<Filter>("all");
-  const [loading, setLoading] = useState(true);
+  const loading = jobs === undefined;
 
-  async function load() {
-    setLoading(true);
-    try {
-      const params = filter === "all" ? {} : { status: filter };
-      const result = await endpoints.jobs({ limit: 200, ...params });
-      setJobs(result.jobs);
-    } catch {
-      toast.error(t("jobs.loadFailed"));
-    } finally {
-      setLoading(false);
-    }
+  const load = useCallback(
+    async (nextFilter: Filter) => {
+      try {
+        const params = nextFilter === "all" ? {} : { status: nextFilter };
+        const result = await endpoints.jobs({ limit: 200, ...params });
+        setJobs(result.jobs);
+      } catch {
+        toast.error(t("jobs.loadFailed"));
+        setJobs([]);
+      }
+    },
+    [t]
+  );
+
+  // Fetch once on mount; subsequent fetches are driven by the filter/refresh
+  // handlers below rather than by an effect that mirrors `filter` into state.
+  useEffect(() => {
+    load("all");
+  }, [load]);
+
+  function changeFilter(next: Filter) {
+    setFilter(next);
+    load(next);
   }
 
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter]);
+  function refresh() {
+    load(filter);
+  }
 
   return (
     <div className="space-y-6">
@@ -57,20 +69,20 @@ export function Jobs() {
           <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">{t("jobs.title")}</h1>
           <p className="text-sm text-muted-foreground">{t("jobs.description")}</p>
         </div>
-        <Button variant="outline" onClick={load} className="w-full sm:w-auto">
-          <RefreshCw className="mr-2 h-4 w-4" /> {t("common.refresh")}
+        <Button variant="outline" onClick={refresh} className="w-full sm:w-auto">
+          <RefreshCw className="mr-2 size-4" /> {t("common.refresh")}
         </Button>
       </header>
 
       <Card>
-        <CardHeader className="flex flex-col gap-3 space-y-0 sm:flex-row sm:items-center sm:justify-between">
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <CardTitle>{t("jobs.tableTitle")}</CardTitle>
             <CardDescription>{t("jobs.tableDesc")}</CardDescription>
           </div>
           <Tabs
             value={filter}
-            onValueChange={(v) => setFilter(v as Filter)}
+            onValueChange={(v) => changeFilter(v as Filter)}
             className="w-full sm:w-auto"
           >
             <TabsList className="w-full sm:w-auto">

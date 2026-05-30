@@ -4,7 +4,7 @@
 
 type FetchOptions = RequestInit & { auth?: boolean };
 
-export async function api<T = unknown>(
+async function api<T = unknown>(
   path: string,
   options: FetchOptions = {}
 ): Promise<T> {

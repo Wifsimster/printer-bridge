@@ -54,25 +54,29 @@ export function Layout() {
       return;
     }
     let cancelled = false;
-    const tick = () =>
-      endpoints
-        .health()
-        .then((h) => !cancelled && setHealth(h))
-        .catch(() => !cancelled && setHealth(null));
+    const tick = async () => {
+      let next: HealthResponse | null;
+      try {
+        next = await endpoints.health();
+      } catch {
+        next = null;
+      }
+      if (!cancelled) setHealth(next);
+    };
     tick();
     const id = setInterval(tick, 15000);
     return () => {
       cancelled = true;
       clearInterval(id);
     };
-  }, [navigate, location.pathname, authLoading, me]);
+  }, [navigate, authLoading, me]);
 
   return (
     <div className="app-shell-bg flex min-h-screen">
       <aside className="hidden w-64 flex-col border-r border-border/60 bg-card/40 backdrop-blur md:flex">
         <div className="flex h-16 items-center gap-2.5 border-b border-border/60 px-5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-info text-primary-foreground shadow-soft">
-            <Printer className="h-4 w-4" />
+          <div className="flex size-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-info text-primary-foreground shadow-soft">
+            <Printer className="size-4" />
           </div>
           <div className="flex flex-col leading-tight">
             <span className="text-sm font-semibold tracking-tight">printcast</span>
@@ -103,7 +107,7 @@ export function Layout() {
                   )}
                   <item.icon
                     className={cn(
-                      "h-4 w-4 transition-colors",
+                      "size-4 transition-colors",
                       isActive ? "text-primary" : "text-muted-foreground group-hover:text-foreground"
                     )}
                   />
@@ -133,7 +137,7 @@ export function Layout() {
             className="w-full justify-start text-muted-foreground hover:text-foreground"
             onClick={() => navigate("/")}
           >
-            <Home className="mr-2 h-4 w-4" /> {t("nav.publicPage")}
+            <Home className="mr-2 size-4" /> {t("nav.publicPage")}
           </Button>
           <Button
             variant="ghost"
@@ -144,7 +148,7 @@ export function Layout() {
               navigate("/", { replace: true });
             }}
           >
-            <LogOut className="mr-2 h-4 w-4" /> {t("common.signOut")}
+            <LogOut className="mr-2 size-4" /> {t("common.signOut")}
           </Button>
         </div>
       </aside>
@@ -153,14 +157,14 @@ export function Layout() {
         <header className="sticky top-0 z-10 flex h-14 items-center justify-between gap-2 border-b border-border/60 bg-background/70 px-3 backdrop-blur md:h-16 md:px-8">
           <div className="flex min-w-0 items-center gap-3">
             <div className="flex min-w-0 items-center gap-2 md:hidden">
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-primary to-info text-primary-foreground">
-                <Printer className="h-3.5 w-3.5" />
+              <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-primary to-info text-primary-foreground">
+                <Printer className="size-3.5" />
               </div>
               <span className="truncate text-sm font-semibold">printcast</span>
               {health && (
                 <span
                   className={cn(
-                    "h-2 w-2 shrink-0 rounded-full",
+                    "size-2 shrink-0 rounded-full",
                     health.printer.reachable ? "bg-success" : "bg-destructive"
                   )}
                   aria-label={
@@ -172,7 +176,7 @@ export function Layout() {
               )}
             </div>
             <div className="hidden items-center gap-2 rounded-full border border-border/60 bg-background/60 px-3 py-1.5 text-xs md:flex">
-              <Activity className="h-3.5 w-3.5 text-muted-foreground" />
+              <Activity className="size-3.5 text-muted-foreground" />
               <span className="text-muted-foreground">{t("header.printer")}</span>
               <span className="font-mono text-foreground">
                 {health?.printer?.host || t("header.unknown")}:
@@ -181,7 +185,7 @@ export function Layout() {
               {health ? (
                 health.printer.reachable ? (
                   <Badge variant="success" className="ml-1">
-                    <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-current" />
+                    <span className="mr-1 inline-block size-1.5 rounded-full bg-current" />
                     {t("header.reachable")}
                   </Badge>
                 ) : (
@@ -207,14 +211,14 @@ export function Layout() {
                   title={item.label}
                   className={({ isActive }) =>
                     cn(
-                      "flex h-9 w-9 shrink-0 items-center justify-center rounded-md transition-colors",
+                      "flex size-9 shrink-0 items-center justify-center rounded-md transition-colors",
                       isActive
                         ? "bg-primary/10 text-primary"
                         : "text-muted-foreground hover:bg-accent/50"
                     )
                   }
                 >
-                  <item.icon className="h-4 w-4" />
+                  <item.icon className="size-4" />
                 </NavLink>
               ))}
               <Button
@@ -222,13 +226,13 @@ export function Layout() {
                 size="icon"
                 aria-label={t("common.signOut")}
                 title={t("common.signOut")}
-                className="h-9 w-9 shrink-0 text-muted-foreground"
+                className="size-9 shrink-0 text-muted-foreground"
                 onClick={async () => {
                   await signOut();
                   navigate("/", { replace: true });
                 }}
               >
-                <LogOut className="h-4 w-4" />
+                <LogOut className="size-4" />
               </Button>
             </nav>
             <ThemeToggle />
@@ -255,7 +259,7 @@ function PrinterStatusCard({ health }: { health: HealthResponse | null }) {
         </span>
         <span
           className={cn(
-            "flex h-2 w-2 rounded-full",
+            "flex size-2 rounded-full",
             reachable === true && "bg-success shadow-[0_0_0_3px_hsl(var(--success-soft))]",
             reachable === false && "bg-destructive",
             reachable == null && "bg-muted-foreground/40"

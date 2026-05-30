@@ -4,7 +4,7 @@ import { Loader2, Send } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ApiError, endpoints } from "@/lib/api";
-import { usePublicUsername } from "@/lib/publicUser";
+import { usePublicUsername } from "@/lib/publicUsername";
 import { ASCII_GALLERY, asciiSceneToText, AsciiScene } from "@/lib/ascii";
 
 export function PublicAscii() {
@@ -70,9 +70,9 @@ export function PublicAscii() {
       </div>
       <Button onClick={run} disabled={busy}>
         {busy ? (
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          <Loader2 className="mr-2 size-4 animate-spin" />
         ) : (
-          <Send className="mr-2 h-4 w-4" />
+          <Send className="mr-2 size-4" />
         )}
         {t("public.ascii.print")}
       </Button>
