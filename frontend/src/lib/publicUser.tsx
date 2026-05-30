@@ -19,7 +19,7 @@ function pick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
-function randomUsername(): string {
+export function randomUsername(): string {
   return `${pick(ADJECTIVES)}-${pick(ANIMALS)}-${Math.floor(Math.random() * 100)}`;
 }
 
